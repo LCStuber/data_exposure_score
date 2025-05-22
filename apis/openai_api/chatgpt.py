@@ -1,13 +1,8 @@
 import os
-import openai
+from openai import OpenAI
 
 def gerar_relatorio(api_key: str, tweets_json: str) -> str:
-    """
-    Envia o JSON de tweets ao GPT para gerar um relatório CSV completo,
-    incluindo colunas de fonte primária e IDs de tweets.
-    Retorna o CSV como string.
-    """
-    openai.api_key = api_key
+
     campos_csv = '''
         Usuario,NomeProvavel,IdadeEstimada,
         GeneroEstimado,OrientacaoSexualSugestiva,RelacaoAfetivaSugerida,
@@ -29,6 +24,7 @@ def gerar_relatorio(api_key: str, tweets_json: str) -> str:
         HistoricoCriminalMencionado
     '''
 
+    client = OpenAI(api_key=api_key)    
 
     prompt = (
         f"Você é um analista de perfis de Twitter. Gere um relatório CSV completo "
@@ -38,13 +34,11 @@ def gerar_relatorio(api_key: str, tweets_json: str) -> str:
         f"Cabeçalho:\n{campos_csv}\n\n"
         f"Dados JSON de tweets:\n{tweets_json}"
     )
-    response = openai.ChatCompletion.create(
+    response = client.responses.create(
         model="gpt-4.1-nano",
-        messages=[
+        input=[
             {"role": "system", "content": "Analista de perfis de Twitter"},
             {"role": "user", "content": prompt}
-        ],
-        temperature=0.7,
-        max_tokens=1000
+        ]
     )
-    return response.choices[0].message.content.strip()
+    return response

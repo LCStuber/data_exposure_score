@@ -33,4 +33,4 @@ def analyze_chunk_to_csv(chunk: str) -> str:
     resp = requests.post(url, headers=headers, json=payload)
     resp.raise_for_status()
     data = resp.json()
-    return data["choices"][0]["message"]["content"].strip()
+    return data.content.text
