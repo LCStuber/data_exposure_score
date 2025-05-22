@@ -16,6 +16,6 @@ if "__main__" == __name__:
     tweets = pd.read_json("apis/x/tweets.json").to_dict()
     response = api_connection.gerar_relatorio(openai_api_key,tweets_json=tweets)
 
-    with open("analysis.txt", mode="w") as txt:
+    with open("apis/analysis2.json", mode="w") as txt:
         txt.write(str(response))
     print(response)
