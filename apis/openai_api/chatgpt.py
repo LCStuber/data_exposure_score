@@ -35,10 +35,10 @@ def gerar_relatorio(api_key: str, tweets_json: str) -> str:
         f"Dados JSON de tweets:\n{tweets_json}"
     )
     response = client.responses.create(
-        model="gpt-4.1-nano",
+        model="gpt-4.1-mini",
         input=[
             {"role": "system", "content": "Analista de perfis de Twitter"},
             {"role": "user", "content": prompt}
         ]
     )
-    return response
+    return response # type: ignore
