@@ -1,59 +1,42 @@
+import os
+import socket
+from datetime import datetime
+from pymongo import ReturnDocument
+from pymongo.errors import PyMongoError, DuplicateKeyError
+from concurrent.futures import ThreadPoolExecutor
 from atproto import Client
 from atproto.exceptions import AtProtocolError
-import os
 from dotenv import load_dotenv
 from pymongo import MongoClient
-from pymongo.errors import PyMongoError
 
 load_dotenv()
 
+# MongoDB setup
 USER       = os.getenv("MONGO_USER")
 PASS       = os.getenv("MONGO_PASS")
 HOST       = os.getenv("MONGO_HOST")
 PORT       = os.getenv("MONGO_PORT")
 AUTH_DB    = os.getenv("MONGO_AUTH_DB")
-
 DB_NAME    = os.getenv("MONGO_DB")
-COLLECTION = os.getenv("MONGO_COLLECTION")
 
+uri = f"mongodb://{USER}:{PASS}@{HOST}:{PORT}/?authSource={AUTH_DB}"
+clientDB   = MongoClient(uri)
+db         = clientDB[DB_NAME]
+
+# usa o hostname como WORKER_ID por padrão
+WORKER_ID  = os.getenv("WORKER_ID", socket.gethostname())
+
+# Collections
+tasks_coll = db[os.getenv("MONGO_COLLECTION_TASKS")]
+data_coll  = db[os.getenv("MONGO_COLLECTION_DATA")]
+
+# ATProto client
 client = Client()
 client.login(
     os.getenv("BLSKY_USERNAME"),
     os.getenv("BLSKY_PASSWORD")
 )
 
-def get_all_followers(handle: str):
-    try:
-        profile = client.com.atproto.identity.resolve_handle({'handle': handle})
-        did = profile['did']
-
-        followers = []
-        cursor = None
-
-        while True:
-            response = client.app.bsky.graph.get_followers({
-                'actor': did,
-                'limit': 100,
-                'cursor': cursor
-            })
-
-            followers_batch = response['followers']
-            followers.extend(followers_batch)
-
-            # Opcional: log de progresso
-            print(f"Coletados {len(followers)} seguidores até agora...")
-
-            # Checa se há um cursor para continuar
-            cursor = response.cursor
-            if not cursor:
-                break
-
-        return followers
-
-    except AtProtocolError as e:
-        print(f"Erro na API: {e}")
-        return []
-    
 def get_all_posts_of_user(did: str):
     all_posts = []
     cursor = None
@@ -66,17 +49,12 @@ def get_all_posts_of_user(did: str):
                 'cursor': cursor
             })
 
-            feed = response.feed
-
-            if not feed:
-                break
-
+            feed = response.feed or []
             for post in feed:
-                post_data = {
-                    'text': post.post.record.text,
+                all_posts.append({
+                    'text':       post.post.record.text,
                     'created_at': post.post.record.created_at
-                }
-                all_posts.append(post_data)
+                })
 
             cursor = response.cursor
             if not cursor:
@@ -88,39 +66,54 @@ def get_all_posts_of_user(did: str):
 
     return all_posts
 
-uri = f"mongodb://{USER}:{PASS}@{HOST}:{PORT}/?authSource={AUTH_DB}"
-clientDB = MongoClient(uri)
+def process_tasks():
+    while True:
+        task = tasks_coll.find_one_and_update(
+            {'status': 'pending'},
+            {'$set': {
+                'status':    'processing',
+                'locked_by': WORKER_ID,
+                'locked_at': datetime.utcnow()
+            }},
+            return_document=ReturnDocument.AFTER
+        )
 
-db = clientDB[DB_NAME]
-collection = db[COLLECTION]
+        if not task:
+            break
 
-def save_incrementally(data):
-    """
-    Insere o dicionário `data` na coleção configurada em .env
-    """
-    try:
-        result = collection.insert_one(data)
-        print(f"Dados salvos com sucesso. _id gerado: {result.inserted_id}")
-    except PyMongoError as e:
-        print(f"Erro ao salvar no MongoDB: {e}")
+        did    = task['did']
+        handle = task['handle']
+        print(f"[{WORKER_ID}] Processando @{handle} ({did})…")
 
+        try:
+            posts = get_all_posts_of_user(did)
+            data_coll.insert_one({
+                'did':       did,
+                'handle':    handle,
+                'posts':     posts,
+                'fetched_at': datetime.utcnow()
+            })
+            tasks_coll.update_one(
+                {'_id': task['_id']},
+                {'$set': {
+                    'status':       'done',
+                    'processed_at': datetime.utcnow()
+                }}
+            )
+            print(f"[{WORKER_ID}] Concluído: {len(posts)} posts de @{handle}.")
 
-handle = 'duolingobrasil.com.br'
-followers = get_all_followers(handle)
-print(f'Total de seguidores: {len(followers)}')
+        except Exception as e:
+            print(f"[{WORKER_ID}] Erro em @{handle}: {e}")
+            tasks_coll.update_one(
+                {'_id': task['_id']},
+                {'$set': {
+                    'status':       'failed',
+                    'error':        str(e),
+                    'processed_at': datetime.utcnow()
+                }}
+            )
 
-for follower in followers:
-    follower_did = follower['did']
-    follower_handle = follower['handle']
-
-    print(f"Buscando posts de @{follower_handle} ({follower_did})...")
-
-    posts = get_all_posts_of_user(follower_did)
-
-    user_data = {
-        'posts': posts
-    }
-
-    save_incrementally(user_data)
-
-    print(f"Coletados {len(posts)} posts de @{follower_handle}.\n")
+if __name__ == "__main__":
+    num_threads = os.cpu_count() or 4
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+        executor.map(lambda _: process_tasks(), range(num_threads))
