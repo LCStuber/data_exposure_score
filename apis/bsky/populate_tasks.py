@@ -3,9 +3,10 @@ import sys
 import socket
 from dotenv import load_dotenv
 from atproto import Client
-from atproto.exceptions import AtProtocolError
+from atproto_client.exceptions import RequestException, AtProtocolError
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError, DuplicateKeyError
+import time
 
 # Load environment variables
 load_dotenv()
@@ -27,10 +28,44 @@ tasks_coll = db[TASKS_COLLECTION]
 
 # ATProto client setup
 auto_client = Client()
-auto_client.login(
-    os.getenv("BLSKY_USERNAME"),
-    os.getenv("BLSKY_PASSWORD")
-)
+
+# Login ATProto
+max_retries = 5
+retries = 0
+
+while True:
+    try:
+        auto_client.login(
+            os.getenv("BLSKY_USERNAME"),
+            os.getenv("BLSKY_PASSWORD")
+        )
+        print("Login bem-sucedido")
+        break
+
+    except RequestException as e:
+        resp    = getattr(e, 'response', None)
+        status  = resp.status_code if resp else None
+        headers = resp.headers     if resp else {}
+
+        # Se for rate-limit, espera até o reset
+        if status == 429 or 'RateLimitExceeded' in str(e):
+            reset_ts = int(headers.get('ratelimit-reset', 0))
+            wait = max(reset_ts - time.time(), 0) + 1
+            print(f"Rate limit atingido no login. Aguardando {wait:.0f}s…")
+            time.sleep(wait)
+            retries += 1
+            if retries >= max_retries:
+                raise RuntimeError("Número máximo de tentativas de login excedido.")
+            continue
+
+        # Qualquer outro RequestException
+        print(f"Erro no login (RequestException): {e}")
+        raise
+
+    except Exception as e:
+        # Erros inesperados
+        print(f"Erro crítico no login: {e}")
+        raise
 
 # Worker identifier for logging (hostname)
 WORKER_ID = socket.gethostname()
@@ -44,46 +79,62 @@ def get_all_followers(handle: str) -> int:
     try:
         profile = auto_client.com.atproto.identity.resolve_handle({'handle': handle})
         did = profile['did']
+    except AtProtocolError as e:
+        print(f"API error while resolving handle {handle}: {e}")
+        return 0
 
-        cursor = None
-        total = 0
+    cursor = None
+    total = 0
 
-        while True:
+    while True:
+        try:
             resp = auto_client.app.bsky.graph.get_followers({
                 'actor': did,
                 'limit': 100,
                 'cursor': cursor
             })
-            batch = resp['followers']
-            total += len(batch)
-            print(f"[{WORKER_ID}] Collected {total} followers so far...")
 
-            for f in batch:
-                try:
-                    tasks_coll.update_one(
-                        {'did': f['did']},
-                        {'$setOnInsert': {
-                            'did':       f['did'],
-                            'handle':    f['handle'],
-                            'status':    'pending',
-                            'locked_by': None
-                        }},
-                        upsert=True
-                    )
-                except (DuplicateKeyError, PyMongoError) as e:
-                    # Ignore duplicates or log errors
-                    print(f"Warning: could not upsert task for {f['did']}: {e}")
+        except RequestException as e:
+            resp_obj = getattr(e, 'response', None)
+            status   = resp_obj.status_code if resp_obj else None
+            headers  = resp_obj.headers     if resp_obj else {}
 
-            cursor = getattr(resp, 'cursor', None)
-            if not cursor:
-                break
+            # Rate limit handling
+            if status == 429 or 'RateLimitExceeded' in str(e):
+                reset_ts = int(headers.get('ratelimit-reset', 0))
+                wait = max(reset_ts - time.time(), 0) + 1
+                print(f"[{WORKER_ID}] Rate limit atingido para {did}. Aguardando {wait:.0f}s…")
+                time.sleep(wait)
+                continue
+            else:
+                print(f"[{WORKER_ID}] Erro crítico ao buscar followers de {did}: {e}")
+                return total
 
-        print(f"[{WORKER_ID}] Done: scheduled {total} followers tasks.")
-        return total
+        batch = resp['followers'] or []
+        total += len(batch)
+        print(f"[{WORKER_ID}] Collected {total} followers so far...")
 
-    except AtProtocolError as e:
-        print(f"API error while resolving handle {handle}: {e}")
-        return 0
+        for f in batch:
+            try:
+                tasks_coll.update_one(
+                    {'did': f['did']},
+                    {'$setOnInsert': {
+                        'did':       f['did'],
+                        'handle':    f['handle'],
+                        'status':    'pending',
+                        'locked_by': None
+                    }},
+                    upsert=True
+                )
+            except (DuplicateKeyError, PyMongoError) as e:
+                print(f"Warning: could not upsert task for {f['did']}: {e}")
+
+        cursor = resp.cursor
+        if not cursor:
+            break
+
+    print(f"[{WORKER_ID}] Done: scheduled {total} followers tasks.")
+    return total
 
 
 if __name__ == "__main__":
