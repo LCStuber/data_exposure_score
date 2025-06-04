@@ -7,6 +7,8 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from google.genai import errors
+import re
 
 # Carrega variáveis de ambiente do arquivo .env
 load_dotenv()
@@ -33,40 +35,105 @@ FilhosOuDependentesMencionados,HistoricoCriminalMencionado, PossuiPixMencionado'
         return f'{{"erro": "Falha na configuração da API Gemini: {str(e)}", "detalhes": "Verifique a API Key."}}'
 
 
-    prompt_completo = f'''Você é um analista de perfis de Twitter. Quero que você crie uma ficha que contenha
-todas as informações dos posts que eu te passar. Caso tenha alguma informação que você
-não consiga identificar com certeza, pode deixar o campo como INCERTO. 
-Deixe como INCERTO caso não encontrar alguma informação. Além disso,
-vou te passar uma lista de campos que você deve identificar, assim como os tweets em
-um formato json. Apenas o Json. Não deixe nada em negrito. Mande no formato JSON.
-Além disso, as menções devem se referir ao USUÁRIO que está fazendo as publicações,
-não a eventos ou pessoas de maneira geral. Caso um campo exista, mas não tenha uma referência direta ao usuário
-você deve colocar o valor do campo como OUTROS: <informação coletada>.
-Campos: {campos}
-Tweets: {tweets}'''
+    prompt_completo = f"""Você é um analista de perfis de Twitter focado na extração precisa de informações sobre o AUTOR de cada tweet.
+Sua tarefa é criar uma ficha geral do usuário no formato JSON analisando todos seus tweets, preenchendo os campos da lista.
+Diretrizes Essenciais:
+Saída: APENAS JSON. Sem texto adicional, sem negrito.
+Incerteza: Se a informação para um campo não for encontrada ou não for clara, use "INCERTO".
+FOCO NO AUTOR: Toda informação DEVE ser sobre o autor do tweet.
+Se um campo pede algo sobre o autor, mas o dado no tweet é sobre terceiros ou um evento geral (e não diretamente sobre o autor), use "OUTROS: [dado coletado]".
+Exemplo: Campo sentimento_do_autor. Tweet: "Ele parece triste". Resposta: "sentimento_do_autor": "OUTROS: [Ele parece triste]"
+Menções (para campos como mencoes, pessoas_citadas etc.):
+Se a menção (@usuario, nome, etc.) NÃO se refere ao autor do tweet, use "OUTROS: [menção coletada]".
+Se a menção é ao próprio autor (ex: "eu", "meu", seu @handle), liste-a diretamente.
+Se houver múltiplas menções, aplique esta lógica a cada uma. Ex: "mencoes": ["eu", "OUTROS: [@amigo]"]
+Para todos os outros campos: Aplique rigorosamente as diretrizes 3 e 4.
+Entradas:
+campos: {campos}
+tweets: {tweets}""".strip()
 
+
+    config = types.GenerateContentConfig(
+        # 1) Direciona o modelo a obedecer o formato solicitado
+        system_instruction=types.Content(
+            parts=[types.Part(
+                text=(
+                    "Responda exclusivamente com JSON válido, sem texto extra. "
+                    "Use 'INCERTO' quando a informação não estiver presente ou clara."
+                )
+            )]
+        ),
+
+        # 2) Garante baixa aleatoriedade  → respostas consistentes
+        temperature=0.1,
+        top_p=0.9,
+        top_k=40,
+
+        # 3) Mantém apenas uma variação de saída
+        candidate_count=1,
+
+        # 4) Tamanho máximo suficiente para listas grandes de tweets
+        max_output_tokens=2048,
+
+        # 5) Penalidades desligadas (evita distorções em nomes/campos repetidos)
+        presence_penalty=0.0,
+        frequency_penalty=0.0,
+
+        # 7) Formato da resposta
+        response_mime_type="application/json",
+
+        # 8) (Opcional, mas útil) Esquema reforça a estrutura esperada
+        response_schema={
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    campo: {"type": "string"} for campo in [
+                        "Usuario","NomeProvavel","IdadeEstimada","GeneroEstimado",
+                        "OrientacaoSexualSugestiva","RelacaoAfetivaSugerida","ProfissaoOcupacao",
+                        "EscolaridadeIndicada","LocalizacaoProvavel","CidadesMencionadas",
+                        "ReligiaoSugerida","PosicionamentoPolitico","SaudeFisicaCitacoes",
+                        "SaudeMentalCitacoes","UsoDeSubstancias","TopicosRelevantes",
+                        "HobbiesEInteresses","ReferenciasAFamilia","ExposicaoDeRelacionamentos",
+                        "PossuiInformacaoCPF","PossuiInformacaoRG","PossuiPassaporte",
+                        "PossuiTituloEleitor","NomeDaMaePresente","NomeDoPaiPresente",
+                        "NacionalidadeMencionada","EtniaOuRacaMencionada","EnderecoMencionado",
+                        "TelefoneOuEmailMencionado","PossuiInformacaoBancaria","PossuiCartaoDeEmbarque",
+                        "IndicacaoDeRenda","ClasseSocialInferida","PossuiPatrimonioMencionado",
+                        "EmpregoOuEmpresaMencionada","BeneficioSocialMencionado",
+                        "HistoricoFinanceiroMencionado","ScoreCreditoInferido",
+                        "FilhosOuDependentesMencionados","HistoricoCriminalMencionado","PossuiPixMencionado"
+                    ]
+                }
+            }
+        },
+
+
+        # 9) Mantém seu budget de “thinking” zerado, como já fazia
+        thinking_config=types.ThinkingConfig(thinking_budget=0)
+    )
 
     try:
-        response: types.GenerateContentResponse = client.models.generate_content(
+        resp: types.GenerateContentResponse = client.models.generate_content(
             model="gemini-2.5-flash-preview-04-17",
             contents=prompt_completo,
-            config=types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(
-                thinking_budget=0
-                ),
-                response_mime_type="application/json"
-            )
+            config=config
         )
-        return response.text
-    except genai.types.BlockedPromptException as e:
-        return f'{{"erro": "Prompt bloqueado", "detalhes": "{str(e)}"}}'
-    except genai.types.StopCandidateException as e:
-        return f'{{"erro": "Geração interrompida", "detalhes": "{str(e)}"}}'
-    except Exception as e:
-        error_details = str(e)
-        if hasattr(e, 'message'):
-            error_details = e.message
-        return f'{{"erro": "Falha ao gerar relatório com Gemini", "detalhes": "{error_details}"}}'
+    except errors.APIError as api_err:  # 4xx / 5xx
+        return {
+            "erro": "APIError",
+            "detalhes": f"{api_err.code} {api_err.message}",
+        }
+
+    # Verifica bloqueio de conteúdo
+    fb = getattr(resp, "prompt_feedback", None)
+    if fb and fb.block_reason:
+        return {
+            "erro": "Conteúdo bloqueado",
+            "motivo": fb.block_reason.name,  # SAFETY, PROHIBITED_CONTENT, OTHER…
+        }
+
+    return resp.text
 
 USER       = os.getenv("MONGO_USER")
 PASS       = os.getenv("MONGO_PASS")
@@ -106,10 +173,8 @@ def processar_doc(doc):
 
     tweets_json = json.dumps(tweets_pt, ensure_ascii=False)
     try:
-        relatório_texto = gerar_relatorio_gemini(GOOGLE_KEY, tweets_json)
-        relatório = json.loads(relatório_texto)
+        relatório = gerar_relatorio_gemini(GOOGLE_KEY, tweets_json)
     except Exception as e:
-        # Como já usamos sys.exit dentro de gerar_relatorio_gemini, este bloco dificilmente será alcançado
         print(f"[ERRO] Ao gerar relatório para {source_id}: {e}")
         sys.exit(1)
 
@@ -162,8 +227,26 @@ def processar_bsky_docs():
     Se qualquer erro ocorrer, o script será interrompido imediatamente.
     """
     filtro = {"significant": True, "report_id": {"$exists": False}}
-    cursor = data_coll.find(filtro, {"posts": 1})
-    batch_size = 1000
+
+    pipeline = [
+        {"$match": filtro},
+        {"$project": {
+            "posts": {
+                "$slice": [
+                    {
+                        "$sortArray": {
+                            "input": "$posts",
+                            "sortBy": {"created_at": -1}
+                        }
+                    },
+                    400
+                ]
+            }
+        }}
+    ]
+
+    cursor = data_coll.aggregate(pipeline)
+    batch_size = 1
     batch = []
     total = data_coll.count_documents(filtro)
     print(f"[INFO] Encontrados {total} documentos com significant=true e sem report_id em `{COL_DATA}`")
