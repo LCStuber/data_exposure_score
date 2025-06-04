@@ -83,28 +83,25 @@ tweets: {tweets}""".strip()
         response_mime_type="application/json",
 
         # 8) (Opcional, mas útil) Esquema reforça a estrutura esperada
-        response_schema={
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    campo: {"type": "string"} for campo in [
-                        "Usuario","NomeProvavel","IdadeEstimada","GeneroEstimado",
-                        "OrientacaoSexualSugestiva","RelacaoAfetivaSugerida","ProfissaoOcupacao",
-                        "EscolaridadeIndicada","LocalizacaoProvavel","CidadesMencionadas",
-                        "ReligiaoSugerida","PosicionamentoPolitico","SaudeFisicaCitacoes",
-                        "SaudeMentalCitacoes","UsoDeSubstancias","TopicosRelevantes",
-                        "HobbiesEInteresses","ReferenciasAFamilia","ExposicaoDeRelacionamentos",
-                        "PossuiInformacaoCPF","PossuiInformacaoRG","PossuiPassaporte",
-                        "PossuiTituloEleitor","NomeDaMaePresente","NomeDoPaiPresente",
-                        "NacionalidadeMencionada","EtniaOuRacaMencionada","EnderecoMencionado",
-                        "TelefoneOuEmailMencionado","PossuiInformacaoBancaria","PossuiCartaoDeEmbarque",
-                        "IndicacaoDeRenda","ClasseSocialInferida","PossuiPatrimonioMencionado",
-                        "EmpregoOuEmpresaMencionada","BeneficioSocialMencionado",
-                        "HistoricoFinanceiroMencionado","ScoreCreditoInferido",
-                        "FilhosOuDependentesMencionados","HistoricoCriminalMencionado","PossuiPixMencionado"
-                    ]
-                }
+        response_schema = {
+            "type": "object",
+            "properties": {
+                campo: {"type": "string"} for campo in [
+                    "Usuario","NomeProvavel","IdadeEstimada","GeneroEstimado",
+                    "OrientacaoSexualSugestiva","RelacaoAfetivaSugerida","ProfissaoOcupacao",
+                    "EscolaridadeIndicada","LocalizacaoProvavel","CidadesMencionadas",
+                    "ReligiaoSugerida","PosicionamentoPolitico","SaudeFisicaCitacoes",
+                    "SaudeMentalCitacoes","UsoDeSubstancias","TopicosRelevantes",
+                    "HobbiesEInteresses","ReferenciasAFamilia","ExposicaoDeRelacionamentos",
+                    "PossuiInformacaoCPF","PossuiInformacaoRG","PossuiPassaporte",
+                    "PossuiTituloEleitor","NomeDaMaePresente","NomeDoPaiPresente",
+                    "NacionalidadeMencionada","EtniaOuRacaMencionada","EnderecoMencionado",
+                    "TelefoneOuEmailMencionado","PossuiInformacaoBancaria","PossuiCartaoDeEmbarque",
+                    "IndicacaoDeRenda","ClasseSocialInferida","PossuiPatrimonioMencionado",
+                    "EmpregoOuEmpresaMencionada","BeneficioSocialMencionado",
+                    "HistoricoFinanceiroMencionado","ScoreCreditoInferido",
+                    "FilhosOuDependentesMencionados","HistoricoCriminalMencionado","PossuiPixMencionado"
+                ]
             }
         },
 
