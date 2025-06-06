@@ -14,20 +14,20 @@ import re
 load_dotenv()
 
 def gerar_relatorio_gemini(api_key: str, tweets: str) -> str:
-    campos = '''Usuario,NomeProvavel,IdadeEstimada,
-GeneroEstimado,OrientacaoSexualSugestiva,RelacaoAfetivaSugerida,
-ProfissaoOcupacao,EscolaridadeIndicada,LocalizacaoProvavel,
-CidadesMencionadas,ReligiaoSugerida,PosicionamentoPolitico,
-SaudeFisicaCitacoes,SaudeMentalCitacoes,UsoDeSubstancias,
-TopicosRelevantes,HobbiesEInteresses,ReferenciasAFamilia,
-ExposicaoDeRelacionamentos, PossuiInformacaoCPF,PossuiInformacaoRG,PossuiPassaporte,
-PossuiTituloEleitor,NomeDaMaePresente,NomeDoPaiPresente,
-NacionalidadeMencionada,EtniaOuRacaMencionada,EnderecoMencionado,
-TelefoneOuEmailMencionado,PossuiInformacaoBancaria, PossuiCartaoDeEmbarque,
-IndicacaoDeRenda,ClasseSocialInferida,PossuiPatrimonioMencionado,
-EmpregoOuEmpresaMencionada,BeneficioSocialMencionado,
-HistoricoFinanceiroMencionado,ScoreCreditoInferido,
-FilhosOuDependentesMencionados,HistoricoCriminalMencionado, PossuiPixMencionado'''
+    campos = '''NomeDeclaradoOuSugeridoPeloAutor,IdadeDeclaradaOuInferidaDoAutor,
+GeneroAutoDeclaradoOuInferidoDoAutor,OrientacaoSexualDeclaradaOuSugeridaPeloAutor,StatusDeRelacionamentoDeclaradoOuSugeridoPeloAutor,
+ProfissaoOcupacaoDeclaradaPeloAutor,NivelEducacionalDeclaradoOuInferidoPeloAutor,LocalizacaoPrincipalDeclaradaOuInferidaDoAutor,
+CidadesComRelevanciaPessoalParaOAutor,CrencaReligiosaDeclaradaOuSugeridaPeloAutor,OpinioesPoliticasExpressasPeloAutor,
+MencoesASaudeFisicaDoAutor,MencoesASaudeMentalDoAutor,MencoesAUsoDeSubstanciasPeloAutor,
+MencoesAFamiliaresDoAutor,ExposicaoDeRelacionamentosPessoaisPeloAutor,
+MencaoDoAutorAPosseDeCPF,MencaoDoAutorAPosseDeRG,MencaoDoAutorAPosseDePassaporte,
+MencaoDoAutorAPosseDeTituloEleitor,MencaoDoAutorAoNomeDaMae,MencaoDoAutorAoNomeDoPai,
+EtniaOuRacaAutoDeclaradaPeloAutor,MencaoDoAutorAEnderecoResidencial,
+MencaoDoAutorAContatoPessoal_TelefoneEmail,MencaoDoAutorADadosBancarios,MencaoDoAutorACartaoDeEmbarque,
+IndicadoresDeRendaPropriaMencionadosPeloAutor,MencoesAPatrimonioPessoalDoAutor,
+LocalDeTrabalhoOuEstudoDeclaradoPeloAutor,MencaoDoAutorARecebimentoDeBeneficioSocial,
+MencoesAoProprioHistoricoFinanceiroPeloAutor,MencoesDoAutorAFilhosOuDependentes,
+MencoesDoAutorAProprioHistoricoCriminal,MencaoDoAutorAPosseDeChavePix'''
 
     try:
         client = genai.Client(api_key=api_key)
@@ -35,19 +35,24 @@ FilhosOuDependentesMencionados,HistoricoCriminalMencionado, PossuiPixMencionado'
         return f'{{"erro": "Falha na configuração da API Gemini: {str(e)}", "detalhes": "Verifique a API Key."}}'
 
 
-    prompt_completo = f"""Você é um analista de perfis de Twitter focado na extração precisa de informações sobre o AUTOR de cada tweet.
-Sua tarefa é criar uma ficha geral do usuário no formato JSON analisando todos seus tweets, preenchendo os campos da lista.
-Diretrizes Essenciais:
-Saída: APENAS JSON. Sem texto adicional, sem negrito.
-Incerteza: Se a informação para um campo não for encontrada ou não for clara, use "INCERTO".
-FOCO NO AUTOR: Toda informação DEVE ser sobre o autor do tweet.
-Se um campo pede algo sobre o autor, mas o dado no tweet é sobre terceiros ou um evento geral (e não diretamente sobre o autor), use "OUTROS: [dado coletado]".
-Exemplo: Campo sentimento_do_autor. Tweet: "Ele parece triste". Resposta: "sentimento_do_autor": "OUTROS: [Ele parece triste]"
-Menções (para campos como mencoes, pessoas_citadas etc.):
-Se a menção (@usuario, nome, etc.) NÃO se refere ao autor do tweet, use "OUTROS: [menção coletada]".
-Se a menção é ao próprio autor (ex: "eu", "meu", seu @handle), liste-a diretamente.
-Se houver múltiplas menções, aplique esta lógica a cada uma. Ex: "mencoes": ["eu", "OUTROS: [@amigo]"]
-Para todos os outros campos: Aplique rigorosamente as diretrizes 3 e 4.
+    prompt_completo = f"""Você é um analista de perfis de Twitter focado na extração precisa de informações sobre o AUTOR dos tweets. Sua tarefa é criar uma ficha JSON do usuário, analisando seus tweets e preenchendo os campos fornecidos.
+
+Diretrizes Rígidas:
+
+1.  Saída: APENAS o JSON final. Sem nenhum texto adicional.
+2.  Foco no Autor: Toda informação DEVE ser sobre o autor ou declarada por ele.
+3.  Lógica de Preenchimento (VERDADEIRO/OUTROS/FALSO):
+    * Para CADA campo, o valor deve ser:
+        * Uma lista contendo a string "VERDADEIRO" se o autor fizer uma menção sobre si mesmo relacionada ao campo.
+        * Uma lista contendo a string "OUTROS" se o autor fizer uma menção sobre um conhecido/terceiro relacionada ao campo.
+        * Se houver menções sobre o autor E sobre outros para o mesmo campo, a lista deve conter ambas as strings: ["VERDADEIRO", "OUTROS"].
+        * A string "FALSO" se não houver nenhuma menção relevante ao campo nos tweets, ou se a informação for inconclusiva.
+    * Cada string ("VERDADEIRO", "OUTROS") deve aparecer no máximo uma vez na lista para cada campo.
+    * Exemplo de campo com dados sobre o autor: "IdadeDeclaradaOuInferidaDoAutor": ["VERDADEIRO"]
+    * Exemplo de campo com dados sobre outros: "IdadeDeclaradaOuInferidaDoAutor": ["OUTROS"]
+    * Exemplo de campo com dados sobre ambos: "IdadeDeclaradaOuInferidaDoAutor": ["VERDADEIRO", "OUTROS"]
+    * Exemplo de campo sem dados ou inconclusivo: "MencaoDoAutorAPosseDeCPF": ["FALSO"]
+
 Entradas:
 campos: {campos}
 tweets: {tweets}""".strip()
@@ -59,25 +64,13 @@ tweets: {tweets}""".strip()
             parts=[types.Part(
                 text=(
                     "Responda exclusivamente com JSON válido, sem texto extra. "
-                    "Use 'INCERTO' quando a informação não estiver presente ou clara."
+                    "Use (VERDADEIRO/OUTROS/FALSO) como nas diretrizes."
                 )
             )]
         ),
 
-        # 2) Garante baixa aleatoriedade  → respostas consistentes
-        temperature=0.1,
-        top_p=0.9,
-        top_k=40,
-
         # 3) Mantém apenas uma variação de saída
         candidate_count=1,
-
-        # 4) Tamanho máximo suficiente para listas grandes de tweets
-        max_output_tokens=2048,
-
-        # 5) Penalidades desligadas (evita distorções em nomes/campos repetidos)
-        presence_penalty=0.0,
-        frequency_penalty=0.0,
 
         # 7) Formato da resposta
         response_mime_type="application/json",
@@ -87,32 +80,19 @@ tweets: {tweets}""".strip()
             "type": "object",
             "properties": {
                 campo: {"type": "string"} for campo in [
-                    "Usuario","NomeProvavel","IdadeEstimada","GeneroEstimado",
-                    "OrientacaoSexualSugestiva","RelacaoAfetivaSugerida","ProfissaoOcupacao",
-                    "EscolaridadeIndicada","LocalizacaoProvavel","CidadesMencionadas",
-                    "ReligiaoSugerida","PosicionamentoPolitico","SaudeFisicaCitacoes",
-                    "SaudeMentalCitacoes","UsoDeSubstancias","TopicosRelevantes",
-                    "HobbiesEInteresses","ReferenciasAFamilia","ExposicaoDeRelacionamentos",
-                    "PossuiInformacaoCPF","PossuiInformacaoRG","PossuiPassaporte",
-                    "PossuiTituloEleitor","NomeDaMaePresente","NomeDoPaiPresente",
-                    "NacionalidadeMencionada","EtniaOuRacaMencionada","EnderecoMencionado",
-                    "TelefoneOuEmailMencionado","PossuiInformacaoBancaria","PossuiCartaoDeEmbarque",
-                    "IndicacaoDeRenda","ClasseSocialInferida","PossuiPatrimonioMencionado",
-                    "EmpregoOuEmpresaMencionada","BeneficioSocialMencionado",
-                    "HistoricoFinanceiroMencionado","ScoreCreditoInferido",
-                    "FilhosOuDependentesMencionados","HistoricoCriminalMencionado","PossuiPixMencionado"
+                    "NomeDeclaradoOuSugeridoPeloAutor","IdadeDeclaradaOuInferidaDoAutor","GeneroAutoDeclaradoOuInferidoDoAutor","OrientacaoSexualDeclaradaOuSugeridaPeloAutor","StatusDeRelacionamentoDeclaradoOuSugeridoPeloAutor","ProfissaoOcupacaoDeclaradaPeloAutor","NivelEducacionalDeclaradoOuInferidoPeloAutor","LocalizacaoPrincipalDeclaradaOuInferidaDoAutor","CidadesComRelevanciaPessoalParaOAutor","CrencaReligiosaDeclaradaOuSugeridaPeloAutor","OpinioesPoliticasExpressasPeloAutor","MencoesASaudeFisicaDoAutor","MencoesASaudeMentalDoAutor","MencoesAUsoDeSubstanciasPeloAutor","MencoesAFamiliaresDoAutor","ExposicaoDeRelacionamentosPessoaisPeloAutor","MencaoDoAutorAPosseDeCPF","MencaoDoAutorAPosseDeRG","MencaoDoAutorAPosseDePassaporte","MencaoDoAutorAPosseDeTituloEleitor","MencaoDoAutorAoNomeDaMae","MencaoDoAutorAoNomeDoPai","EtniaOuRacaAutoDeclaradaPeloAutor","MencaoDoAutorAEnderecoResidencial","MencaoDoAutorAContatoPessoal_TelefoneEmail","MencaoDoAutorADadosBancarios","MencaoDoAutorACartaoDeEmbarque","IndicadoresDeRendaPropriaMencionadosPeloAutor","MencoesAPatrimonioPessoalDoAutor","LocalDeTrabalhoOuEstudoDeclaradoPeloAutor","MencaoDoAutorARecebimentoDeBeneficioSocial","MencoesAoProprioHistoricoFinanceiroPeloAutor","MencoesDoAutorAFilhosOuDependentes","MencoesDoAutorAProprioHistoricoCriminal","MencaoDoAutorAPosseDeChavePix"
                 ]
             }
         },
 
 
-        # 9) Mantém seu budget de “thinking” zerado, como já fazia
+        # 9) Mantém seu budget de “thinking” zerado
         thinking_config=types.ThinkingConfig(thinking_budget=0)
     )
 
     try:
         resp: types.GenerateContentResponse = client.models.generate_content(
-            model="gemini-2.5-flash-preview-04-17",
+            model="gemini-2.5-flash-preview-05-20",
             contents=prompt_completo,
             config=config
         )
@@ -207,7 +187,7 @@ def processar_em_batches(batch):
     Processa uma lista de documentos em paralelo usando threads.
     Se qualquer thread lançar exceção, o programa será encerrado.
     """
-    max_workers = os.cpu_count() or 4
+    max_workers = 1
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(processar_doc, doc) for doc in batch]
         for future in as_completed(futures):
@@ -243,7 +223,7 @@ def processar_bsky_docs():
     ]
 
     cursor = data_coll.aggregate(pipeline)
-    batch_size = 1
+    batch_size = 24
     batch = []
     total = data_coll.count_documents(filtro)
     print(f"[INFO] Encontrados {total} documentos com significant=true e sem report_id em `{COL_DATA}`")
