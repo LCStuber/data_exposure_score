@@ -1,200 +1,224 @@
 import os
 import sys
 import json
-from openai import OpenAI
+import time
+import tempfile
 from datetime import datetime, timezone
+from typing import List, Dict
+
+from openai import OpenAI
 from pymongo import MongoClient
 from dotenv import load_dotenv
-from concurrent.futures import ThreadPoolExecutor, as_completed
+
 load_dotenv()
 
 
-def gerar_relatorio(api_key: str, tweets: list) -> str:
+# ENVIRONMENT VARIABLES & GLOBALS
 
-    campos = '''NomeDeclaradoOuSugeridoPeloAutor,IdadeDeclaradaOuInferidaDoAutor,
-GeneroAutoDeclaradoOuInferidoDoAutor,OrientacaoSexualDeclaradaOuSugeridaPeloAutor,StatusDeRelacionamentoDeclaradoOuSugeridoPeloAutor,
-ProfissaoOcupacaoDeclaradaPeloAutor,NivelEducacionalDeclaradoOuInferidoPeloAutor,LocalizacaoPrincipalDeclaradaOuInferidaDoAutor,
-CidadesComRelevanciaPessoalParaOAutor,CrencaReligiosaDeclaradaOuSugeridaPeloAutor,OpinioesPoliticasExpressasPeloAutor,
-MencoesASaudeFisicaDoAutor,MencoesASaudeMentalDoAutor,MencoesAUsoDeSubstanciasPeloAutor,
-MencoesAFamiliaresDoAutor,ExposicaoDeRelacionamentosPessoaisPeloAutor,
-MencaoDoAutorAPosseDeCPF,MencaoDoAutorAPosseDeRG,MencaoDoAutorAPosseDePassaporte,
-MencaoDoAutorAPosseDeTituloEleitor,MencaoDoAutorAoNomeDaMae,MencaoDoAutorAoNomeDoPai,
-EtniaOuRacaAutoDeclaradaPeloAutor,MencaoDoAutorAEnderecoResidencial,
-MencaoDoAutorAContatoPessoal_TelefoneEmail,MencaoDoAutorADadosBancarios,MencaoDoAutorACartaoDeEmbarque,
-IndicadoresDeRendaPropriaMencionadosPeloAutor,MencoesAPatrimonioPessoalDoAutor,
-LocalDeTrabalhoOuEstudoDeclaradoPeloAutor,MencaoDoAutorARecebimentoDeBeneficioSocial,
-MencoesAoProprioHistoricoFinanceiroPeloAutor,MencoesDoAutorAFilhosOuDependentes,
-MencoesDoAutorAProprioHistoricoCriminal,MencaoDoAutorAPosseDeChavePix'''
-    try:
-        client = OpenAI(api_key=api_key)    
-    except Exception as e:
-        return f"Erro ao conectar com a API OpenAI: {str(e)}"
-    prompt = f'''Você é um analista de perfis de Twitter focado na extração precisa de informações sobre o AUTOR dos tweets. Sua tarefa é criar uma ficha JSON do usuário, analisando seus tweets e preenchendo os campos fornecidos.
-Diretrizes Rígidas:
-1.  Saída: APENAS o JSON final. Sem nenhum texto adicional.
-2.  Foco no Autor: Toda informação DEVE ser sobre o autor ou declarada por ele.
-3.  Lógica de Preenchimento (VERDADEIRO/OUTROS/FALSO):
-* Para CADA campo, o valor deve ser:
-** Uma lista contendo a string "VERDADEIRO" se o autor fizer uma menção sobre si mesmo relacionada ao campo.
-** Uma lista contendo a string "OUTROS" se o autor fizer uma menção sobre um conhecido/terceiro relacionada ao campo.
-** Se houver menções sobre o autor E sobre outros para o mesmo campo, a lista deve conter ambas as strings: ["VERDADEIRO", "OUTROS"]. (A ordem pode ser esta, ou alfabética).
-** A string "FALSO" se não houver nenhuma menção relevante ao campo nos tweets, ou se a informação for inconclusiva.
-* Cada string ("VERDADEIRO", "OUTROS") deve aparecer no máximo uma vez na lista para cada campo.
-* Exemplo de campo com dados sobre o autor: "IdadeDeclaradaOuInferidaDoAutor": ["VERDADEIRO"]
-* Exemplo de campo com dados sobre outros: "IdadeDeclaradaOuInferidaDoAutor": ["OUTROS"]
-* Exemplo de campo com dados sobre ambos: "IdadeDeclaradaOuInferidaDoAutor": ["VERDADEIRO", "OUTROS"]
-* Exemplo de campo sem dados ou inconclusivo: "MencaoDoAutorAPosseDeCPF": "FALSO"
-Entradas:
-campos: {campos}
-tweets: {tweets}'''
-    
-    
-    response = client.responses.create(
-        model="gpt-4o-mini",
-        input=[
-            {"role": "system", "content": "Analista de perfis de Twitter"},
-            {"role": "user", "content": prompt}
-        ]
-    )
-    return response.output_text
-
-USER       = os.getenv("MONGO_USER")
-PASS       = os.getenv("MONGO_PASS")
-HOST       = os.getenv("MONGO_HOST")
-PORT       = os.getenv("MONGO_PORT")
-AUTH_DB    = os.getenv("MONGO_AUTH_DB")
-DB_NAME    = os.getenv("MONGO_DB")
-COL_DATA   = os.getenv("MONGO_COLLECTION_DATA")
+USER = os.getenv("MONGO_USER")
+PASS = os.getenv("MONGO_PASS")
+HOST = os.getenv("MONGO_HOST")
+PORT = os.getenv("MONGO_PORT")
+AUTH_DB = os.getenv("MONGO_AUTH_DB")
+DB_NAME = os.getenv("MONGO_DB")
+COL_DATA = os.getenv("MONGO_COLLECTION_DATA")
 COL_REPORT = os.getenv("MONGO_COLLECTION_REPORTS")
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 
-
 if not all([USER, PASS, HOST, PORT, AUTH_DB, DB_NAME, COL_DATA, COL_REPORT, OPENAI_KEY]):
-    raise RuntimeError("Por favor, verifique se todas as variáveis de ambiente Mongo e OPENAI_API_KEY estão configuradas no .env")
+    raise RuntimeError("Verifique se todas as variáveis de ambiente Mongo e OPENAI_API_KEY estão configuradas no .env")
 
+# MongoDB client/collections
 uri = f"mongodb://{USER}:{PASS}@{HOST}:{PORT}/?authSource={AUTH_DB}"
 clientDB = MongoClient(uri)
-db       = clientDB[DB_NAME]
-data_coll   = db[COL_DATA]
+db = clientDB[DB_NAME]
+data_coll = db[COL_DATA]
 reports_coll = db[COL_REPORT]
 
-def processar_doc(doc):
-    """
-    Processa um único documento:
-    - Filtra posts em 'pt'
-    - Chama GPT
-    - Insere em reports_coll
-    - Atualiza data_coll com report_id
-    """
-    source_id = doc["_id"]
-    posts = doc.get("posts", [])
-    tweets_pt = [post for post in posts if post.get("lang") == "pt"]
-    if not tweets_pt:
-        print(f"[SKIP] Documento {source_id} não tem posts em 'pt'.")
+
+openai_client = OpenAI(api_key=OPENAI_KEY)
+
+
+DEFAULT_BATCH_SIZE = int(os.getenv("BATCH_SIZE", 500))  # linhas por arquivo .jsonl para Batch API
+MODEL_NAME = "gpt-4o-mini"
+CAMPO_LIST = (
+    "NomeDeclaradoOuSugeridoPeloAutor,IdadeDeclaradaOuInferidaDoAutor,"
+    "GeneroAutoDeclaradoOuInferidoDoAutor,OrientacaoSexualDeclaradaOuSugeridaPeloAutor,StatusDeRelacionamentoDeclaradoOuSugeridoPeloAutor,"
+    "ProfissaoOcupacaoDeclaradaPeloAutor,NivelEducacionalDeclaradoOuInferidoPeloAutor,LocalizacaoPrincipalDeclaradaOuInferidaDoAutor,"
+    "CidadesComRelevanciaPessoalParaOAutor,CrencaReligiosaDeclaradaOuSugeridaPeloAutor,OpinioesPoliticasExpressasPeloAutor,"
+    "MencoesASaudeFisicaDoAutor,MencoesASaudeMentalDoAutor,MencoesAUsoDeSubstanciasPeloAutor,"
+    "MencoesAFamiliaresDoAutor,ExposicaoDeRelacionamentosPessoaisPeloAutor,"
+    "MencaoDoAutorAPosseDeCPF,MencaoDoAutorAPosseDeRG,MencaoDoAutorAPosseDePassaporte,"
+    "MencaoDoAutorAPosseDeTituloEleitor,MencaoDoAutorAoNomeDaMae,MencaoDoAutorAoNomeDoPai,"
+    "EtniaOuRacaAutoDeclaradaPeloAutor,MencaoDoAutorAEnderecoResidencial,"
+    "MencaoDoAutorAContatoPessoal_TelefoneEmail,MencaoDoAutorADadosBancarios,MencaoDoAutorACartaoDeEmbarque,"
+    "IndicadoresDeRendaPropriaMencionadosPeloAutor,MencoesAPatrimonioPessoalDoAutor,"
+    "LocalDeTrabalhoOuEstudoDeclaradoPeloAutor,MencaoDoAutorARecebimentoDeBeneficioSocial,"
+    "MencoesAoProprioHistoricoFinanceiroPeloAutor,MencoesDoAutorAFilhosOuDependentes,"
+    "MencoesDoAutorAProprioHistoricoCriminal,MencaoDoAutorAPosseDeChavePix"
+)
+
+
+def build_prompt(tweets_json: str) -> str:
+    """Constroi o prompt que será enviado ao modelo"""
+    return (
+        "Você é um analista de perfis de Twitter focado na extração precisa de informações sobre o AUTOR dos tweets. "
+        "Sua tarefa é criar uma ficha JSON do usuário, analisando seus tweets e preenchendo os campos fornecidos.\n"
+        "Diretrizes Rígidas:\n"
+        "1.  Saída: APENAS o JSON final. Sem nenhum texto adicional.\n"
+        "2.  Foco no Autor: Toda informação DEVE ser sobre o autor ou declarada por ele.\n"
+        "3.  Lógica de Preenchimento (VERDADEIRO/OUTROS/FALSO):\n"
+        "* Para CADA campo, o valor deve ser:\n"
+        "** Uma lista contendo a string \"VERDADEIRO\" se o autor fizer uma menção sobre si mesmo relacionada ao campo.\n"
+        "** Uma lista contendo a string \"OUTROS\" se o autor fizer uma menção sobre um conhecido/terceiro relacionada ao campo.\n"
+        "** Se houver menções sobre o autor E sobre outros para o mesmo campo, a lista deve conter ambas as strings: [\"VERDADEIRO\", \"OUTROS\"].\n"
+        "** A string \"FALSO\" se não houver nenhuma menção relevante ao campo nos tweets, ou se a informação for inconclusiva.\n"
+        "* Cada string (\"VERDADEIRO\", \"OUTROS\") deve aparecer no máximo uma vez na lista para cada campo.\n"
+        f"Entradas:\ncampos: {CAMPO_LIST}\ntweets: {tweets_json}"
+    )
+
+
+def doc_to_batch_line(doc: Dict) -> Dict:
+    """Transforma um documento Mongo em uma linha JSONL para o Batch API"""
+    source_id = str(doc["_id"])
+    tweets_pt = [p for p in doc.get("posts", []) if p.get("lang") == "pt"]
+    tweets_json = json.dumps(tweets_pt, ensure_ascii=False)
+
+    prompt = build_prompt(tweets_json)
+
+    body = {
+        "model": MODEL_NAME,
+        "input": [
+            {"role": "system", "content": "Analista de perfis de Twitter"},
+            {"role": "user", "content": prompt}
+        ],
+        "store": False,
+    }
+
+    return {
+        "custom_id": source_id,
+        "method": "POST",
+        "url": "/v1/responses",
+        "body": body,
+    }
+
+
+def write_jsonl(lines: List[Dict]) -> str:
+    """Escreve as linhas da batch em um arquivo temporário .jsonl e retorna o caminho"""
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl", mode="w", encoding="utf-8")
+    for line in lines:
+        tmp.write(json.dumps(line, ensure_ascii=False) + "\n")
+    tmp.close()
+    return tmp.name
+
+
+def wait_batch(batch_id: str, poll_seconds: int = 60):
+    """Aguarda até que o batch mude para estado 'completed' ou 'failed'/'cancelled'"""
+    print(f"[INFO] Aguardando conclusão do batch {batch_id}...")
+    while True:
+        batch = openai_client.batches.retrieve(batch_id)
+        status = batch.status
+        if status in {"completed", "failed", "cancelled", "expired"}:
+            return batch
+        print(f"    status: {status} | concluído: {batch.request_counts.completed} / {batch.request_counts.total}")
+        time.sleep(poll_seconds)
+
+
+def processar_resultados(batch):
+    """Baixa o arquivo de saída do batch e processa cada linha para Mongo"""
+    output_file_id = batch.output_file_id
+    error_file_id = batch.error_file_id
+
+    if not output_file_id:
+        print(f"[ERRO] Batch {batch.id} não possui output_file_id. Status: {batch.status}")
         return
 
-    tweets_json = json.dumps(tweets_pt, ensure_ascii=False)
-    try:
-        relatório = gerar_relatorio(OPENAI_KEY, tweets_json)
-    except Exception as e:
-        print(f"[ERRO] Ao gerar relatório para {source_id}: {e}")
-        sys.exit(1)
+    file_resp = openai_client.files.content(output_file_id)
+    # O método .text carrega tudo na memória; se o arquivo for grande considere stream
+    conteudo = file_resp.text
 
-    try:
-        resultado = reports_coll.insert_one({
-            "source_id": source_id,
-            "report": relatório,
-            "analyzed_at": datetime.now(timezone.utc)
-        })
-        inserted_id = resultado.inserted_id
-        print(f"[SALVO] Relatório para {source_id} inserido em `{COL_REPORT}` como _id={inserted_id}")
-    except Exception as e:
-        print(f"[ERRO] Ao salvar relatório de {source_id} em `{COL_REPORT}`: {e}")
-        print(relatório)
-        print(source_id)
-        sys.exit(1)
+    for line in conteudo.splitlines():
+        registro = json.loads(line)
+        source_id = registro["custom_id"]
+        resposta_body = registro["response"]["body"]
+        relatorio = resposta_body["choices"][0]["message"]["content"].strip()
 
-    try:
-        data_coll.update_one(
-            {"_id": source_id},
-            {"$set": {"report_id": inserted_id}}
-        )
-        print(f"[ATUALIZADO] Documento {source_id} em `{COL_DATA}` marcado com report_id={inserted_id}")
-    except Exception as e:
-        print(f"[ERRO] Ao adicionar report_id em `{COL_DATA}` para {source_id}: {e}")
-        print(relatório)
-        print(source_id)
-        print(inserted_id)
-        sys.exit(1)
+        # Insere reporte e atualiza source
+        try:
+            resultado = reports_coll.insert_one({
+                "source_id": source_id,
+                "report": relatorio,
+                "analyzed_at": datetime.now(timezone.utc)
+            })
+            inserted_id = resultado.inserted_id
+            data_coll.update_one({"_id": data_coll.codec_options.document_class(source_id)}, {"$set": {"report_id": inserted_id}})
+            print(f"[SALVO] Relatório para {source_id} (_id={inserted_id})")
+        except Exception as e:
+            print(f"[ERRO] Falha ao salvar relatório/atualizar doc {source_id}: {e}")
 
-def processar_em_batches(batch):
-    """
-    Processa uma lista de documentos em paralelo usando threads.
-    Se qualquer thread lançar exceção, o programa será encerrado.
-    """
-    max_workers = 1
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(processar_doc, doc) for doc in batch]
-        for future in as_completed(futures):
-            try:
-                future.result()
-            except Exception as e:
-                print(f"[ERRO NA THREAD] {e}")
-                sys.exit(1)
+    if error_file_id:
+        err_resp = openai_client.files.content(error_file_id)
+        print("[AVISO] Existem erros no batch. Confira o arquivo de erro:")
+        print(err_resp.text[:1000])  # imprime os primeiros 1000 chars
+
 
 def processar_bsky_docs():
-    """
-    Itera sobre todos os documentos de data_coll com significant=true e sem 'report_id',
-    em lotes de 1000. Após cada lote, aguarda ENTER para continuar ou 'q' para sair.
-    Se qualquer erro ocorrer, o script será interrompido imediatamente.
-    """
     filtro = {"significant": True, "report_id": {"$exists": False}}
 
-    pipeline = [
-        {"$match": filtro},
-        {"$project": {
-            "posts": {
-                "$slice": [
-                    {
-                        "$sortArray": {
-                            "input": "$posts",
-                            "sortBy": {"created_at": -1}
-                        }
-                    },
-                    400
-                ]
-            }
-        }}
-    ]
-
-    cursor = data_coll.aggregate(pipeline)
-    batch_size = 24
-    batch = []
+    cursor = data_coll.find(filtro, projection={"posts": 1})
     total = data_coll.count_documents(filtro)
-    print(f"[INFO] Encontrados {total} documentos com significant=true e sem report_id em `{COL_DATA}`")
+    print(f"[INFO] Encontrados {total} documentos pendentes em `{COL_DATA}`")
 
-    processed = 0
+    batch_lines: List[Dict] = []
+    count = 0
+
     for doc in cursor:
-        batch.append(doc)
-        if len(batch) >= batch_size:
-            print(f"\n--- Processando lote de {len(batch)} documentos ({processed+1} a {processed+len(batch)} de ~{total}) ---")
-            processar_em_batches(batch)
-            processed += len(batch)
-            batch.clear()
+        # Apenas documentos com tweets em 'pt'
+        if not any(p.get("lang") == "pt" for p in doc.get("posts", [])):
+            continue
+        batch_lines.append(doc_to_batch_line(doc))
+        count += 1
 
-            escolha = input("Pressione ENTER para processar o próximo lote ou digite 'q' + ENTER para sair: ").strip().lower()
-            if escolha == 'q':
-                print("[INFO] Execução interrompida a pedido do usuário.")
-                return
-            print()
+        # Quando atingirmos DEFAULT_BATCH_SIZE linhas ou for o último doc, executamos um batch
+        if count % DEFAULT_BATCH_SIZE == 0:
+            execute_batch(batch_lines)
+            batch_lines.clear()
 
-    # Processa o que sobrou, se houver
-    if batch:
-        print(f"\n--- Processando lote final de {len(batch)} documentos ({processed+1} a {processed+len(batch)} de ~{total}) ---")
-        processar_em_batches(batch)
-        print()
+    # Processa o restante
+    if batch_lines:
+        execute_batch(batch_lines)
 
-    print("[INFO] Todos os documentos foram processados ou o usuário interrompeu.")
+
+def execute_batch(lines: List[Dict]):
+    """Executa um batch dado uma lista de linhas JSONL"""
+    print(f"[INFO] Criando batch com {len(lines)} requisições...")
+    jsonl_path = write_jsonl(lines)
+
+    # 1) Upload do arquivo
+    file_obj = openai_client.files.create(file=open(jsonl_path, "rb"), purpose="batch")
+    print(f"    Arquivo enviado: {file_obj.id}")
+
+    # 2) Criação do batch
+    batch_obj = openai_client.batches.create(
+        input_file_id=file_obj.id,
+        endpoint="/v1/responses",
+        completion_window="24h",
+        metadata={"origin": "twitter-bsky-script"}
+    )
+    print(f"    Batch iniciado: {batch_obj.id} | status: {batch_obj.status}")
+
+    # 3) Aguardar conclusão
+    batch_final = wait_batch(batch_obj.id, poll_seconds=60)
+
+    # 4) Processar resultados e atualizar Mongo
+    if batch_final.status == "completed":
+        processar_resultados(batch_final)
+    else:
+        print(f"[ERRO] Batch {batch_final.id} terminou com status {batch_final.status}")
+
 
 if __name__ == "__main__":
-    processar_bsky_docs()
+    try:
+        processar_bsky_docs()
+    except KeyboardInterrupt:
+        print("[INFO] Execução interrompida pelo usuário.")
