@@ -1,167 +1,185 @@
-  'use client'
+'use client'
 
-  import Link from 'next/link'
-  import Image from 'next/image'
-  import { useEffect, useMemo, useRef, useState } from 'react'
-  import {
-    Search,
-    Sun,
-    Github,
-    Menu,
-    Users,
-    BarChart2,
-    TrendingUp,
-    ShieldCheck,
-    Database,
-  } from 'lucide-react'
-  import {
-    LineChart,
-    Line,
-    XAxis,
-    YAxis,
-    Tooltip,
-    ResponsiveContainer,
-    BarChart,
-    Bar,
-    CartesianGrid,
-  } from 'recharts'
+import Link from 'next/link'
+import Image from 'next/image'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Search,
+  Sun,
+  Menu,
+  Users,
+  BarChart2,
+  Database,
+  ShieldCheck,
+} from 'lucide-react'
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  CartesianGrid,
+  Legend, 
+} from 'recharts'
 
-  // ----------------- Types & Mock helpers -----------------
-  type Gender = 'male' | 'female' | 'other'
-  type User = { id: string; age: number; gender: Gender; score: number }
+type Gender = 'male' | 'female' | 'other'
+type User = { id: string; age: number; gender: Gender; score: number }
 
-  const rand = (min: number, max: number) =>
-    Math.floor(Math.random() * (max - min + 1)) + min
+const rand = (min: number, max: number) =>
+  Math.floor(Math.random() * (max - min + 1)) + min
 
-  function generateMockUsers(n = 360): User[] {
-    const genders: Gender[] = ['male', 'female', 'other']
-    return Array.from({ length: n }).map((_, i) => {
-      const base = rand(320, 920)
-      const monthly = Array.from({ length: 12 }).map((m) =>
-        Math.max(
-          0,
-          Math.min(
-            1000,
-            Math.round(
-              base +
-                Math.sin((m / 12) * Math.PI * 2) * rand(0, 30) +
-                rand(-35, 35)
-            )
-          )
-        )
-      )
-      return {
-        id: `user_${i + 1}`,
-        age: rand(14, 75),
-        gender: genders[Math.floor(Math.random() * genders.length)],
-        score: base,
-      }
+function generateMockUsers(n = 360): User[] {
+  const genders: Gender[] = ['male', 'female', 'other']
+  return Array.from({ length: n }).map((_, i) => {
+    const base = rand(320, 920)
+    return {
+      id: `user_${i + 1}`,
+      age: rand(14, 75),
+      gender: genders[Math.floor(Math.random() * genders.length)],
+      score: base,
+    }
+  })
+}
+
+const avg = (arr: number[]) =>
+  arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0
+
+const bucketsFor = (scores: number[], size = 200) => {
+  const b = Array.from({ length: Math.ceil(1000 / size) }, () => 0)
+  scores.forEach((s) => b[Math.min(b.length - 1, Math.floor(s / size))]++)
+  return b
+}
+
+const variableLabels: Record<string, string> = {
+  NomeDeclaradoOuSugeridoPeloAutor: 'Nome declarado',
+  IdadeDeclaradaOuInferidaDoAutor: 'Idade',
+  GeneroAutoDeclaradoOuInferidoDoAutor: 'Gênero',
+  OrientacaoSexualDeclaradaOuSugeridaPeloAutor: 'Orientação sexual',
+  StatusDeRelacionamentoDeclaradoOuSugeridoPeloAutor: 'Status de relacionamento',
+  ProfissaoOcupacaoDeclaradaPeloAutor: 'Profissão/Ocupação',
+  NivelEducacionalDeclaradoOuInferidoDoAutor: 'Nível educacional',
+  LocalizacaoPrincipalDeclaradaOuInferidaDoAutor: 'Localização principal',
+  CidadesComRelevanciaPessoalParaOAutor: 'Cidades relevantes',
+  CrencaReligiosaDeclaradaOuSugeridaPeloAutor: 'Crença religiosa',
+  OpinioesPoliticasExpressasPeloAutor: 'Opiniões políticas',
+  ExposicaoDeRelacionamentosPessoaisPeloAutor: 'Relacionamentos expostos',
+  MencaoDoAutorAPosseDeCPF: 'Menção a CPF',
+  MencaoDoAutorAPosseDeRG: 'Menção a RG',
+  MencaoDoAutorAPosseDePassaporte: 'Menção a Passaporte',
+  MencaoDoAutorAPosseDeTituloEleitor: 'Menção a Título de Eleitor',
+  EtniaOuRacaAutoDeclaradaPeloAutor: 'Etnia/Raça',
+  MencaoDoAutorAEnderecoResidencial: 'Endereço residencial',
+  MencaoDoAutorAContatoPessoal_TelefoneEmail: 'Contato (telefone/email)',
+  MencaoDoAutorADadosBancarios: 'Dados bancários',
+  MencaoDoAutorACartaoDeEmbarque: 'Cartão de embarque',
+  IndicadoresDeRendaPropriaMencionadosPeloAutor: 'Indicadores de renda',
+  MencoesAPatrimonioPessoalDoAutor: 'Patrimônio pessoal',
+  LocalDeTrabalhoOuEstudoDeclaradoPeloAutor: 'Local de trabalho/estudo',
+  MencaoDoAutorARecebimentoDeBeneficioSocial: 'Benefício social',
+  MencoesAoProprioHistoricoFinanceiroPeloAutor: 'Histórico financeiro',
+  MencoesDoAutorAProprioHistoricoCriminal: 'Histórico criminal',
+  MencaoDoAutorAPosseDeChavePix: 'Menção a Chave Pix',
+}
+const variableKeys = Object.keys(variableLabels)
+
+function generateVariableSeriesData(variables: string[], totalUsers: number): Record<string, number[]> {
+  const data: Record<string, number[]> = {}
+  
+  variables.forEach(key => {
+    let baseCount = rand(10, totalUsers * 0.8)
+    if (key.includes('CPF') || key.includes('RG') || key.includes('Bancarios') || key.includes('Criminal')) {
+      baseCount = rand(0, totalUsers * 0.05)
+    }
+
+    data[key] = Array.from({ length: 12 }).map(() => {
+      const fluctuation = rand(-Math.floor(baseCount * 0.1), Math.floor(baseCount * 0.1))
+      return Math.max(0, Math.round(baseCount + fluctuation))
     })
-  }
-  const avg = (arr: number[]) =>
-    arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0
-  const bucketsFor = (scores: number[], size = 200) => {
-    const b = Array.from({ length: Math.ceil(1000 / size) }, () => 0)
-    scores.forEach((s) => b[Math.min(b.length - 1, Math.floor(s / size))]++)
-    return b
-  }
+  })
+  
+  return data
+}
 
-  // ----------------- UI: Navbar -----------------
-  function NavBar() {
-    const [open, setOpen] = useState(false)
-    const searchRef = useRef<HTMLInputElement>(null)
+function NavBar() {
+  const [open, setOpen] = useState(false)
+  const searchRef = useRef<HTMLInputElement>(null)
 
-    useEffect(() => {
-      const onKey = (e: KeyboardEvent) => {
-        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-          e.preventDefault()
-          searchRef.current?.focus()
-        }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        searchRef.current?.focus()
       }
-      window.addEventListener('keydown', onKey)
-      return () => window.removeEventListener('keydown', onKey)
-    }, [])
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
-    return (
-      <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6">
-          <div className="h-16 flex items-center justify-between">
-            {/* esquerda: logo + links */}
-            <div className="flex items-center gap-5">
-              <Link href="#" className="flex items-center gap-2">
-                <span className="font-semibold text-lg tracking-tight text-black">
-                  DES Dashboard
-                </span>
-              </Link>
-
-              <nav className="hidden md:flex items-center gap-5 text-sm text-slate-600">
-                <a href="#overview" className="hover:text-slate-900">Visão Geral</a>
-                <a href="#charts" className="hover:text-slate-900">Gráficos</a>
-                <a href="#users" className="hover:text-slate-900">Usuários</a>
-                <a href="#docs" className="hover:text-slate-900">Docs</a>
-              </nav>
-            </div>
-
-            {/* direita: busca + ícones + CTA */}
-            <div className="flex items-center gap-2">
-              <div className="relative hidden sm:block">
-                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                <input
-                  ref={searchRef}
-                  placeholder="Buscar…"
-                  aria-label="Buscar"
-                  className="pl-8 pr-14 py-2 rounded-lg bg-white ring-1 ring-slate-200 placeholder:text-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 w-56 shadow-sm"
-                />
-                <kbd className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 border border-slate-300 rounded px-1 bg-slate-50">
-                  Ctrl K
-                </kbd>
-              </div>
-
-              <button
-                aria-label="Alternar tema"
-                className="p-2 rounded-xl hover:bg-slate-100"
-                title="Alternar tema"
-                type="button"
-              >
-                <Sun className="h-5 w-5" />
-              </button>
-
-              <a
-                href="https://github.com/"
-                target="_blank"
-                className="p-2 rounded-xl hover:bg-slate-100"
-                aria-label="GitHub"
-                rel="noreferrer"
-              >
-                <Github className="h-5 w-5" />
-              </a>
-              <button
-                className="md:hidden p-2 rounded-xl hover:bg-slate-100"
-                onClick={() => setOpen((v) => !v)}
-                aria-label="Abrir menu"
-                type="button"
-              >
-                <Menu className="h-6 w-6" />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* menu mobile */}
-        {open && (
-          <div className="md:hidden border-t border-slate-200 bg-white">
-            <nav className="px-4 py-3 flex flex-col gap-2 text-sm text-slate-700">
-              <a href="#overview" className="hover:text-slate-900" onClick={() => setOpen(false)}>Visão Geral</a>
-              <a href="#charts" className="hover:text-slate-900" onClick={() => setOpen(false)}>Gráficos</a>
-              <a href="#users" className="hover:text-slate-900" onClick={() => setOpen(false)}>Usuários</a>
+  return (
+    <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6">
+        <div className="h-16 flex items-center justify-between">
+          <div className="flex items-center gap-5">
+            <Link href="#" className="flex items-center gap-2">
+              <span className="font-semibold text-lg tracking-tight text-black">
+                DES Dashboard
+              </span>
+            </Link>
+            <nav className="hidden md:flex items-center gap-5 text-sm text-slate-600">
+              <a href="#overview" className="hover:text-slate-900">Visão Geral</a>
+              <a href="#charts" className="hover:text-slate-900">Gráficos</a>
+              <a href="#submissions" className="hover:text-slate-900">Submissões</a>
+              <a href="#docs" className="hover:text-slate-900">Docs</a>
             </nav>
           </div>
-        )}
-      </header>
-    )
-  }
+          <div className="flex items-center gap-2">
+            <div className="relative hidden sm:block">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <input
+                ref={searchRef}
+                placeholder="Buscar…"
+                aria-label="Buscar"
+                className="pl-8 pr-14 py-2 rounded-lg bg-white ring-1 ring-slate-200 placeholder:text-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 w-56 shadow-sm"
+              />
+              <kbd className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 border border-slate-300 rounded px-1 bg-slate-50">
+                Ctrl K
+              </kbd>
+            </div>
+            <button
+              aria-label="Alternar tema"
+              className="p-2 rounded-xl hover:bg-slate-100 text-black"
+              title="Alternar tema"
+              type="button"
+            >
+              <Sun className="h-5 w-5" />
+            </button>
+            <button
+              className="md:hidden p-2 rounded-xl hover:bg-slate-100"
+              onClick={() => setOpen((v) => !v)}
+              aria-label="Abrir menu"
+              type="button"
+            >
+              <Menu className="h-6 w-6" />
+            </button>
+          </div>
+        </div>
+      </div>
+      {open && (
+        <div className="md:hidden border-t border-slate-200 bg-white">
+          <nav className="px-4 py-3 flex flex-col gap-2 text-sm text-slate-700">
+            <a href="#overview" className="hover:text-slate-900" onClick={() => setOpen(false)}>Visão Geral</a>
+            <a href="#charts" className="hover:text-slate-900" onClick={() => setOpen(false)}>Gráficos</a>
+            <a href="#users" className="hover:text-slate-900" onClick={() => setOpen(false)}>Usuários</a>
+          </nav>
+        </div>
+      )}
+    </header>
+  )
+}
 
-  // ----------------- Page -----------------
 
 const ageRanges = [
   { label: 'Todos', min: 0, max: 999 },
@@ -174,16 +192,34 @@ const ageRanges = [
   { label: '65+', min: 65, max: 999 },
 ]
 
+const lineColors = [
+  '#0ea5e9', '#84cc16', '#f97316', '#ef4444', '#8b5cf6', '#ec4899',
+  '#14b8a6', '#f59e0b', '#64748b', '#3b82f6', '#10b981', '#d946ef'
+];
+
+
 export default function Page() {
   const [users] = useState<User[]>(() => generateMockUsers(360))
-
-  const [isZoomed, setIsZoomed] = useState(false);
+  const [isZoomed, setIsZoomed] = useState(false)
   const [selectedAgeRange, setSelectedAgeRange] = useState(ageRanges[0])
   const [genderFilter, setGenderFilter] = useState({
     male: true,
     female: true,
     other: true,
   })
+  
+  const [selectedVariables, setSelectedVariables] = useState<Record<string, boolean>>(() => ({
+    NomeDeclaradoOuSugeridoPeloAutor: true,
+    IdadeDeclaradaOuInferidaDoAutor: true,
+    MencaoDoAutorADadosBancarios: true,
+  }));
+
+  const toggleVariable = (key: string) => {
+    setSelectedVariables(prev => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
 
   const toggleGender = (k: keyof typeof genderFilter) =>
     setGenderFilter((s) => ({ ...s, [k]: !s[k] }))
@@ -211,7 +247,7 @@ export default function Page() {
       ),
     [users, selectedAgeRange, allowed]
   )
-
+  
   const scores = useMemo(() => filtered.map((u) => u.score), [filtered])
   const kAvgScore = Math.round(avg(scores) || 0)
   const kPct800 = filtered.length
@@ -227,36 +263,43 @@ export default function Page() {
     label: i === distBuckets.length - 1 ? '800–1000' : `${i * 200}–${i * 200 + 199}`,
     value: v,
   }))
-  
-  // --- NOVA LÓGICA PARA SIMULAR A SÉRIE TEMPORAL ---
+
   const series = useMemo(() => {
-    // Se não houver usuários, retorna um array vazio
     if (filtered.length === 0) {
       return Array.from({ length: 12 }).map((_, m) => ({ month: `${m + 1}`, value: 0 }));
     }
-
-    // 1. Calcula a média do grupo como linha de base
     const baselineAvg = avg(scores);
-    // 2. Define uma variação (ex: 5% da média) para a curva não ser reta
     const amplitude = baselineAvg * 0.05;
-
-    // 3. Gera 12 pontos de dados usando uma onda senoidal + aleatoriedade
     return Array.from({ length: 12 }).map((_, m) => ({
       month: `${m + 1}`,
       value: Math.round(
-        Math.max(0, Math.min(1000, // Garante que o valor fique entre 0 e 1000
+        Math.max(0, Math.min(1000,
           baselineAvg +
-          Math.sin((m / 11) * Math.PI * 2) * amplitude + // Cria a onda suave
-          rand(-20, 20) // Adiciona um pouco de ruído para parecer mais real
+          Math.sin((m / 11) * Math.PI * 2) * amplitude +
+          rand(-20, 20)
         ))
       )
     }));
-  }, [filtered, scores]); // Recalcula a tendência sempre que os filtros mudam
+  }, [filtered, scores]);
+
+  const variableSeriesData = useMemo(() => generateVariableSeriesData(variableKeys, users.length), [users.length]);
+
+  const formattedVariableChartData = useMemo(() => {
+    return Array.from({ length: 12 }).map((_, monthIndex) => {
+      const monthData: { month: string; [key: string]: string | number } = {
+        month: `${monthIndex + 1}`,
+      };
+      variableKeys.forEach(key => {
+        monthData[key] = variableSeriesData[key][monthIndex];
+      });
+      return monthData;
+    });
+  }, [variableSeriesData]);
+
 
   return (
     <div className="bg-slate-50 min-h-screen">
       <NavBar />
-
       <section id="overview" className="border-b border-slate-200 bg-gradient-to-br from-white to-slate-50">
         <div className="max-w-7xl mx-auto px-6 py-8 flex items-center justify-between">
           <div>
@@ -275,7 +318,6 @@ export default function Page() {
               Limpar
             </button>
           </div>
-
           <label className="block text-sm font-medium text-slate-700 mb-2">Idade</label>
           <div className="flex flex-wrap gap-2">
             {ageRanges.map((range) => (
@@ -284,7 +326,6 @@ export default function Page() {
               </button>
             ))}
           </div>
-
           <label className="block text-sm font-medium text-slate-700 mt-4 mb-2">Gênero</label>
           <div className="flex gap-2 flex-wrap">
             {(['male', 'female', 'other'] as Gender[]).map((g) => (
@@ -312,18 +353,17 @@ export default function Page() {
             ))}
           </div>
 
-          {/* GRÁFICOS REINTEGRADOS */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-white p-4 rounded-2xl shadow-sm border">
-              <div className="flex justify-between items-center mb-3"> {/* Container para o título e botão */}
+              <div className="flex justify-between items-center mb-3">
                 <h4 className="font-semibold text-slate-500">Evolução Geral do DES (12 meses)</h4>
                 <button
-                  onClick={() => setIsZoomed(!isZoomed)} // <-- Ação do botão
+                  onClick={() => setIsZoomed(!isZoomed)}
                   className="px-2 py-1 text-xs bg-sky-100 text-sky-700 rounded-md hover:bg-sky-200 transition"
                 >
                   {isZoomed ? 'Ver Visão Geral' : 'Ampliar Gráfico'}
                 </button>
-              </div>              
+              </div>
               <ResponsiveContainer width="100%" height={300}>
                 <LineChart data={series}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -346,6 +386,50 @@ export default function Page() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
+          </div>
+          
+          <div className="bg-white p-4 rounded-2xl shadow-sm border lg:col-span-2">
+            <h4 className="font-semibold text-slate-500">Evolução Temporal por Variável (aparições em 12 meses)</h4>
+            
+            <div className="mt-4 mb-4 border-t border-b border-slate-200 py-3">
+              <h5 className="text-sm font-medium text-slate-600 mb-2">Selecione as variáveis para exibir:</h5>
+              <div className="max-h-32 overflow-y-auto pr-2 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-4 gap-y-2">
+                {Object.entries(variableLabels).map(([key, label]) => (
+                  <label key={key} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!!selectedVariables[key]}
+                      onChange={() => toggleVariable(key)}
+                      className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500"
+                    />
+                    <span className="text-slate-700">{label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <ResponsiveContainer width="100%" height={400}>
+              <LineChart data={formattedVariableChartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="month" label={{ value: 'Mês', position: 'insideBottom', offset: -5 }} />
+                <YAxis label={{ value: 'Aparições', angle: -90, position: 'insideLeft' }} />
+                <Tooltip />
+                <Legend />
+                {Object.keys(selectedVariables)
+                  .filter(key => selectedVariables[key])
+                  .map((key, index) => (
+                    <Line
+                      key={key}
+                      type="monotone"
+                      dataKey={key}
+                      name={variableLabels[key]}
+                      stroke={lineColors[index % lineColors.length]}
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                  ))}
+              </LineChart>
+            </ResponsiveContainer>
           </div>
 
           <div className="bg-white p-4 rounded-2xl shadow-sm border" id="users">
