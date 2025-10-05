@@ -1,8 +1,8 @@
-import type { Metadata } from "next";
-
-import { GeistSans } from "geist/font/sans";
-import { GeistMono } from "geist/font/mono";
-import "./globals.css";
+import type { Metadata } from 'next'
+import { GeistSans } from 'geist/font/sans'
+import { GeistMono } from 'geist/font/mono'
+import './globals.css'
+import ThemeToggle from './components/theme-toggle'
 
 
 export const metadata: Metadata = {
@@ -12,15 +12,21 @@ export const metadata: Metadata = {
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
-      {/* ✅ Use as propriedades .variable diretamente dos objetos importados */}
-      <body className={`${GeistSans.variable} ${GeistMono.variable}`}>
+    <html lang="pt-BR" suppressHydrationWarning>
+      <head>
+        {/* Aplica tema salvo (padrão sempre claro se não houver localStorage) */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(()=>{try{if(localStorage.getItem('theme')==='dark'){document.documentElement.classList.add('dark');}}catch(_){}})();`,
+          }}
+        />
+      </head>
+      <body className={`${GeistSans.variable} ${GeistMono.variable} min-h-screen bg-white text-slate-900 dark:bg-slate-900 dark:text-slate-100 transition-colors`}>        
         {children}
+        {/* <ThemeToggle /> */}
       </body>
     </html>
-  );
+  )
 }

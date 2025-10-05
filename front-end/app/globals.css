@@ -2,34 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Light theme (default) */
-:root {
-  --background: theme(colors.white);
-  --foreground: theme(colors.slate.900);
-}
+/* Reset e utilidades básicas */
+html, body { max-width: 100vw; overflow-x: hidden; }
+body { @apply font-sans antialiased; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+a { text-decoration: none; color: inherit; }
 
-/* Dark theme (system preference) */
+/* Scrollbar leve (opcional) */
+::-webkit-scrollbar { width: 10px; }
+::-webkit-scrollbar-track { background: theme('colors.slate.100'); }
+::-webkit-scrollbar-thumb { background: theme('colors.slate.300'); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: theme('colors.slate.400'); }
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: theme(colors.slate.900);
-    --foreground: theme(colors.slate.100);
-  }
-}
-
-html,
-body {
-  max-width: 100vw;
-  overflow-x: hidden;
-}
-
-body {
-  @apply bg-[var(--background)] text-[var(--foreground)] font-sans antialiased;
-}
-
-* {
-  @apply box-border m-0 p-0;
-}
-
-a {
-  @apply text-inherit no-underline;
+  .dark ::-webkit-scrollbar-track { background: theme('colors.slate.800'); }
+  .dark ::-webkit-scrollbar-thumb { background: theme('colors.slate.600'); }
+  .dark ::-webkit-scrollbar-thumb:hover { background: theme('colors.slate.500'); }
 }
