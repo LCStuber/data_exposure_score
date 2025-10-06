@@ -498,7 +498,7 @@ export default function Page() {
                 <CartesianGrid strokeDasharray="3 3" stroke={colors.border} />
                 <XAxis
                   dataKey="month"
-                  label={{ value: 'Mês', position: 'insideBottom', fill: colors.muted }}
+                  label={{ value: 'Mês', position: 'insideBottom', fill: colors.muted, offset: -2 }}
                   tick={{ fill: colors.muted, fontSize: 11 }}
                   stroke={colors.foreground}
                 />
@@ -519,7 +519,7 @@ export default function Page() {
                   labelStyle={{ color: colors.muted }}
                 />
                 <Legend
-                  wrapperStyle={{ color: colors.foreground, fontSize: 12 }}
+                  wrapperStyle={{ color: colors.foreground, fontSize: 12}}
                   iconSize={12}
                 />
                 {Object.keys(selectedVariables)
