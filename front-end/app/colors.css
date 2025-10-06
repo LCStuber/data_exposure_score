@@ -1,0 +1,27 @@
+/* Theme color variables - imported from layout.tsx */
+
+:root {
+  /* Light theme colors */
+  --color-bg: #ffffff;
+  --color-foreground: #0f172a; /* slate-900 */
+  --color-muted: #475569; /* slate-600 */
+  --color-border: #e6eef6; /* approximate slate-200 */
+  --color-card: #ffffff;
+  --color-accent: #0e5ee9; /* sky-500 */
+  --color-accent-100: #e0f7ff; /* light accent */
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+}
+
+.dark {
+  /* Dark theme colors */
+  --color-bg: #0f172a; /* slate-900 */
+  --color-foreground: #f8fafc; /* slate-100 */
+  --color-muted: #cbd5e1; /* slate-300 */
+  --color-border: #334155; /* slate-700 */
+  --color-card: #0b1220; /* darker card */
+  --color-accent: #0568fd; /* dark-mode accent per user request */
+  --color-success: #10b981;
+  --color-warning: #9205fdff;
+}
+

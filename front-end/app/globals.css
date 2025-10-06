@@ -10,11 +10,11 @@ a { text-decoration: none; color: inherit; }
 
 /* Scrollbar leve (opcional) */
 ::-webkit-scrollbar { width: 10px; }
-::-webkit-scrollbar-track { background: theme('colors.slate.100'); }
-::-webkit-scrollbar-thumb { background: theme('colors.slate.300'); border-radius: 999px; }
-::-webkit-scrollbar-thumb:hover { background: theme('colors.slate.400'); }
+::-webkit-scrollbar-track { background: var(--color-card, #f1f5f9); }
+::-webkit-scrollbar-thumb { background: var(--color-border, #cbd5e1); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-muted, #94a3b8); }
 @media (prefers-color-scheme: dark) {
-  .dark ::-webkit-scrollbar-track { background: theme('colors.slate.800'); }
-  .dark ::-webkit-scrollbar-thumb { background: theme('colors.slate.600'); }
-  .dark ::-webkit-scrollbar-thumb:hover { background: theme('colors.slate.500'); }
+  .dark ::-webkit-scrollbar-track { background: var(--color-card, #0b1220); }
+  .dark ::-webkit-scrollbar-thumb { background: #475569; }
+  .dark ::-webkit-scrollbar-thumb:hover { background: #64748b; }
 }
