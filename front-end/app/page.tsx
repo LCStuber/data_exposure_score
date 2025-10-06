@@ -142,7 +142,7 @@ function NavBar() {
           <div className="flex items-center gap-5">
             <Link href="#" className="flex items-center gap-2">
               <span className="font-semibold text-lg tracking-tight text-slate-900 dark:text-slate-100">
-                DES Dashboard
+                DES
               </span>
             </Link>
             <nav className="hidden md:flex items-center gap-5 text-sm text-slate-600 dark:text-slate-400">
