@@ -4,10 +4,11 @@ import Link from 'next/link'
 export default function Sidebar() {
   const sections = [
     { id: 'introduction', title: 'Introdução' },
-    { id: 'installation', title: 'Instalação' },
-    { id: 'usage', title: 'Uso Rápido' },
-    { id: 'components', title: 'Componentes' },
-    { id: 'theming', title: 'Theming' },
+    { id: 'methodology', title: 'Metodologia' },
+    // { id: 'installation', title: 'Instalação' },
+    // { id: 'usage', title: 'Uso Rápido' },
+    // { id: 'components', title: 'Componentes' },
+    // { id: 'theming', title: 'Theming' },
   ]
 
   return (
@@ -20,7 +21,7 @@ export default function Sidebar() {
       </nav>
       <div className="mt-4 border-t border-[var(--color-border)] pt-4 text-xs text-[var(--color-muted)]">
         <div>Versão da docs: 1.0</div>
-        <Link href="/" className="text-[var(--color-accent)] hover:underline">Voltar</Link>
+        <Link href="/" className="text-[var(--color-accent)] hover:underline">Voltar a home</Link>
       </div>
     </aside>
   )
