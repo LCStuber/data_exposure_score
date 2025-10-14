@@ -155,8 +155,8 @@ function NavBar() {
             <nav className="hidden md:flex items-center gap-5 text-sm text-slate-600 dark:text-slate-400">
               <a href="#overview" className="hover:text-slate-900 dark:hover:text-slate-100">Visão Geral</a>
               <a href="#charts" className="hover:text-slate-900 dark:hover:text-slate-100">Gráficos</a>
-              <a href="#submissions" className="hover:text-slate-900 dark:hover:text-slate-100">Submissões</a>
-              <a href="#docs" className="hover:text-slate-900 dark:hover:text-slate-100">Docs</a>
+              {/* <a href="#submissions" className="hover:text-slate-900 dark:hover:text-slate-100">Submissões</a> */}
+              <a href="/docs" className="hover:text-slate-900 dark:hover:text-slate-100">Docs</a>
             </nav>
           </div>
           <div className="flex items-center gap-2">
