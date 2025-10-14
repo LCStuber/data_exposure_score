@@ -3,7 +3,7 @@
 :root {
   /* Light theme colors */
   --color-bg: #ffffff;
-  --color-foreground: #0f172a; /* slate-900 */
+  --color-foreground: #0f1729; /* slate-900 */
   --color-muted: #475569; /* slate-600 */
   --color-border: #e6eef6; /* approximate slate-200 */
   --color-card: #ffffff;

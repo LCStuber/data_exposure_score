@@ -140,9 +140,16 @@ function NavBar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <div className="h-16 flex items-center justify-between">
           <div className="flex items-center gap-5">
-            <Link href="#" className="flex items-center gap-2">
+            <Link href="#" className="pl-2 flex items-center gap-2">
+              <Image
+              src="/desicon.svg"
+              alt="DES Logo"
+              width={48}
+              height={48}
+              className="inline-block align-middle rounded-md"
+              />
               <span className="font-semibold text-lg tracking-tight text-slate-900 dark:text-slate-100">
-                DES
+              DES
               </span>
             </Link>
             <nav className="hidden md:flex items-center gap-5 text-sm text-slate-600 dark:text-slate-400">
@@ -356,9 +363,10 @@ export default function Page() {
         <div className="max-w-7xl mx-auto px-6 py-8 flex items-center justify-between">
           <div>
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">DES Dashboard</h1>
-            <p className="text-sm md:text-base text-[var(--color-muted)] mt-1">Índice de Exposição Digital — Bluesky (dados de exemplo)</p>
+            {/* <p className="text-sm md:text-base text-[var(--color-muted)] mt-1">Índice de Exposição Digital — Bluesky (dados de exemplo)</p> */}
+            <p className="text-sm md:text-base text-[var(--color-muted)] mt-1">Índice de Exposição Digital — Estudo de caso no Bluesky</p>
           </div>
-            <button className="px-3 py-2 rounded-xl text-white text-sm shadow-sm bg-[var(--color-accent)] hover:brightness-90">Exportar</button>
+            {/* <button className="px-3 py-2 rounded-xl text-white text-sm shadow-sm bg-[var(--color-accent)] hover:brightness-90">Exportar</button> */}
         </div>
       </section>
 
