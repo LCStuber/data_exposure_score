@@ -24,7 +24,7 @@ export default function DocsPage() {
           <p className="text-sm mt-2 text-[var(--color-muted)] text-justify">Ao final do processo, o sistema calcula o escore DES, baseado em critérios de impacto e explorabilidade das informações identificadas nas postagens públicas. O resultado é disponibilizado de forma assíncrona via API, permitindo visualização e atualização conforme o instante da solicitação da análise.</p>
         </section>
 
-        <section id="installation" className="rounded-2xl p-6 bg-[var(--color-card)] border border-[var(--color-border)]">
+        {/* <section id="installation" className="rounded-2xl p-6 bg-[var(--color-card)] border border-[var(--color-border)]">
           <h2 className="text-xl font-semibold text-[var(--color-foreground)]">Instalação</h2>
           <p className="text-sm mt-2 text-[var(--color-muted)]">Instale as dependências e inicie o front-end:</p>
           <pre className="mt-3 p-3 bg-slate-50 dark:bg-slate-800 rounded text-sm overflow-auto border border-[var(--color-border)]"><code>npm install{`\n`}npm run dev</code></pre>
@@ -46,7 +46,7 @@ export default function DocsPage() {
         <section id="theming" className="rounded-2xl p-6 bg-[var(--color-card)] border border-[var(--color-border)]">
           <h2 className="text-xl font-semibold text-[var(--color-foreground)]">Theming</h2>
           <p className="text-sm mt-2 text-[var(--color-muted)]">O projeto usa CSS custom properties e classes utilitárias Tailwind para cores e espaçamento. Veja <code>app/globals.css</code> para as variáveis.</p>
-        </section>
+        </section> */}
       </article>
     </>
   )
