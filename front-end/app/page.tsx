@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Search,
   Sun,
+  Moon,
   Menu,
   Users,
   BarChart2,
@@ -24,6 +25,7 @@ import {
   CartesianGrid,
   Legend, 
 } from 'recharts'
+import useThemeColors from './hooks/use-theme-colors'
 
 type Gender = 'male' | 'female' | 'other'
 type User = { id: string; age: number; gender: Gender; score: number }
@@ -105,9 +107,11 @@ function generateVariableSeriesData(variables: string[], totalUsers: number): Re
 
 function NavBar() {
   const [open, setOpen] = useState(false)
+  const [isDark, setIsDark] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
+    setIsDark(document.documentElement.classList.contains('dark'))
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
@@ -118,46 +122,67 @@ function NavBar() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  const toggleTheme = () => {
+    const root = document.documentElement
+    if (root.classList.contains('dark')) {
+      root.classList.remove('dark')
+      localStorage.setItem('theme', 'light')
+      setIsDark(false)
+    } else {
+      root.classList.add('dark')
+      localStorage.setItem('theme', 'dark')
+      setIsDark(true)
+    }
+  }
+
   return (
-    <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70">
+    <header className="sticky top-0 z-50 border-b border-slate-200 dark:border-slate-700 bg-white/90 dark:bg-slate-900/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 dark:supports-[backdrop-filter]:bg-slate-900/70">
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <div className="h-16 flex items-center justify-between">
           <div className="flex items-center gap-5">
-            <Link href="#" className="flex items-center gap-2">
-              <span className="font-semibold text-lg tracking-tight text-black">
-                DES Dashboard
+            <Link href="#" className="pl-2 flex items-center gap-2">
+              <Image
+              src="/desicon.svg"
+              alt="DES Logo"
+              width={48}
+              height={48}
+              className="inline-block align-middle rounded-md"
+              />
+              <span className="font-semibold text-lg tracking-tight text-slate-900 dark:text-slate-100">
+              DES
               </span>
             </Link>
-            <nav className="hidden md:flex items-center gap-5 text-sm text-slate-600">
-              <a href="#overview" className="hover:text-slate-900">Visão Geral</a>
-              <a href="#charts" className="hover:text-slate-900">Gráficos</a>
-              <a href="#submissions" className="hover:text-slate-900">Submissões</a>
-              <a href="#docs" className="hover:text-slate-900">Docs</a>
+            <nav className="hidden md:flex items-center gap-5 text-sm text-slate-600 dark:text-slate-400">
+              <a href="#overview" className="hover:text-slate-900 dark:hover:text-slate-100">Visão Geral</a>
+              <a href="#charts" className="hover:text-slate-900 dark:hover:text-slate-100">Gráficos</a>
+              {/* <a href="#submissions" className="hover:text-slate-900 dark:hover:text-slate-100">Submissões</a> */}
+              <a href="/docs" className="hover:text-slate-900 dark:hover:text-slate-100">Docs</a>
             </nav>
           </div>
           <div className="flex items-center gap-2">
             <div className="relative hidden sm:block">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 dark:text-slate-500" />
               <input
                 ref={searchRef}
                 placeholder="Buscar…"
                 aria-label="Buscar"
-                className="pl-8 pr-14 py-2 rounded-lg bg-white ring-1 ring-slate-200 placeholder:text-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 w-56 shadow-sm"
+                className="pl-8 pr-14 py-2 rounded-lg bg-white dark:bg-slate-800 ring-1 ring-slate-200 dark:ring-slate-700 placeholder:text-slate-400 dark:placeholder:text-slate-500 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500 w-56 shadow-sm"
               />
-              <kbd className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 border border-slate-300 rounded px-1 bg-slate-50">
+              <kbd className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 dark:text-slate-400 border border-slate-300 dark:border-slate-600 rounded px-1 bg-slate-50 dark:bg-slate-700">
                 Ctrl K
               </kbd>
             </div>
             <button
+              onClick={toggleTheme}
               aria-label="Alternar tema"
-              className="p-2 rounded-xl hover:bg-slate-100 text-black"
+              className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-900 dark:text-slate-100"
               title="Alternar tema"
               type="button"
             >
-              <Sun className="h-5 w-5" />
+              {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </button>
             <button
-              className="md:hidden p-2 rounded-xl hover:bg-slate-100"
+              className="md:hidden p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-900 dark:text-slate-100"
               onClick={() => setOpen((v) => !v)}
               aria-label="Abrir menu"
               type="button"
@@ -168,11 +193,11 @@ function NavBar() {
         </div>
       </div>
       {open && (
-        <div className="md:hidden border-t border-slate-200 bg-white">
-          <nav className="px-4 py-3 flex flex-col gap-2 text-sm text-slate-700">
-            <a href="#overview" className="hover:text-slate-900" onClick={() => setOpen(false)}>Visão Geral</a>
-            <a href="#charts" className="hover:text-slate-900" onClick={() => setOpen(false)}>Gráficos</a>
-            <a href="#users" className="hover:text-slate-900" onClick={() => setOpen(false)}>Usuários</a>
+        <div className="md:hidden border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+          <nav className="px-4 py-3 flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-300">
+            <a href="#overview" className="hover:text-slate-900 dark:hover:text-slate-100" onClick={() => setOpen(false)}>Visão Geral</a>
+            <a href="#charts" className="hover:text-slate-900 dark:hover:text-slate-100" onClick={() => setOpen(false)}>Gráficos</a>
+            <a href="#users" className="hover:text-slate-900 dark:hover:text-slate-100" onClick={() => setOpen(false)}>Usuários</a>
           </nav>
         </div>
       )}
@@ -197,16 +222,35 @@ const lineColors = [
   '#14b8a6', '#f59e0b', '#64748b', '#3b82f6', '#10b981', '#d946ef'
 ];
 
+// color lookups are performed via the useThemeColors hook (see app/hooks/use-theme-colors.ts)
+
 
 export default function Page() {
-  const [users] = useState<User[]>(() => generateMockUsers(360))
+  const [users, setUsers] = useState<User[] | null>(null)
   const [isZoomed, setIsZoomed] = useState(false)
+  const colors = useThemeColors()
   const [selectedAgeRange, setSelectedAgeRange] = useState(ageRanges[0])
   const [genderFilter, setGenderFilter] = useState({
     male: true,
     female: true,
     other: true,
   })
+  const [isDark, setIsDark] = useState(false)
+
+  // Observa mudança de classe no <html> para atualizar tema dos gráficos (sem prop drilling)
+  useEffect(() => {
+    const update = () => setIsDark(document.documentElement.classList.contains('dark'))
+    update()
+    const observer = new MutationObserver(update)
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+    return () => observer.disconnect()
+  }, [])
+
+  // Generate mock data only on the client to avoid SSR/client mismatch
+  useEffect(() => {
+    // small timeout to ensure deterministic client rendering sequence (optional)
+    setUsers(generateMockUsers(360))
+  }, [])
   
   const [selectedVariables, setSelectedVariables] = useState<Record<string, boolean>>(() => ({
     NomeDeclaradoOuSugeridoPeloAutor: true,
@@ -237,18 +281,17 @@ export default function Page() {
     return arr
   }, [genderFilter])
 
-  const filtered = useMemo(
-    () =>
-      users.filter(
-        (u) =>
-          u.age >= selectedAgeRange.min &&
-          u.age <= selectedAgeRange.max &&
-          allowed.includes(u.gender)
-      ),
-    [users, selectedAgeRange, allowed]
-  )
+  const filtered = useMemo(() => {
+    if (!users) return []
+    return users.filter(
+      (u) =>
+        u.age >= selectedAgeRange.min &&
+        u.age <= selectedAgeRange.max &&
+        allowed.includes(u.gender)
+    )
+  }, [users, selectedAgeRange, allowed])
   
-  const scores = useMemo(() => filtered.map((u) => u.score), [filtered])
+  const scores = useMemo(() => (filtered.length ? filtered.map((u) => u.score) : []), [filtered])
   const kAvgScore = Math.round(avg(scores) || 0)
   const kPct800 = filtered.length
     ? Math.round(
@@ -282,7 +325,7 @@ export default function Page() {
     }));
   }, [filtered, scores]);
 
-  const variableSeriesData = useMemo(() => generateVariableSeriesData(variableKeys, users.length), [users.length]);
+  const variableSeriesData = useMemo(() => generateVariableSeriesData(variableKeys, users ? users.length : 0), [users]);
 
   const formattedVariableChartData = useMemo(() => {
     return Array.from({ length: 12 }).map((_, monthIndex) => {
@@ -297,39 +340,56 @@ export default function Page() {
   }, [variableSeriesData]);
 
 
+  if (!users) {
+    return (
+      <div className="bg-[var(--color-bg)] min-h-screen transition-colors duration-800">
+        
+        <NavBar />
+        <main className="max-w-7xl mx-auto p-6">
+          <div className="rounded-2xl p-6 bg-[var(--color-card)] border border-[var(--color-border)] shadow-sm">
+            <h2 className="text-lg font-semibold text-[var(--color-foreground)]">Carregando dados…</h2>
+            <p className="text-sm mt-2 text-[var(--color-muted)]">Gerando dados de exemplo no cliente para evitar inconsistência entre servidor e cliente.</p>
+          </div>
+        </main>
+      </div>
+    )
+  }
+
   return (
-    <div className="bg-slate-50 min-h-screen">
+    <div className="bg-[var(--color-bg)] min-h-screen transition-colors duration-800">
+      
       <NavBar />
-      <section id="overview" className="border-b border-slate-200 bg-gradient-to-br from-white to-slate-50">
+      <section id="overview" className="border-b border-[var(--color-border)] bg-gradient-to-br from-[var(--color-card)] to-[var(--color-bg)]">
         <div className="max-w-7xl mx-auto px-6 py-8 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 ">DES Dashboard</h1>
-            <p className="text-sm md:text-base text-slate-600 mt-1">Índice de Exposição Digital — Bluesky (dados de exemplo)</p>
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">DES Dashboard</h1>
+            {/* <p className="text-sm md:text-base text-[var(--color-muted)] mt-1">Índice de Exposição Digital — Bluesky (dados de exemplo)</p> */}
+            <p className="text-sm md:text-base text-[var(--color-muted)] mt-1">Índice de Exposição Digital — Estudo de caso no Bluesky</p>
           </div>
-          <button className="px-3 py-2 rounded-xl bg-sky-600 text-white hover:bg-sky-700 text-sm shadow-sm">Exportar</button>
+            {/* <button className="px-3 py-2 rounded-xl text-white text-sm shadow-sm bg-[var(--color-accent)] hover:brightness-90">Exportar</button> */}
         </div>
       </section>
 
       <main className="max-w-7xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-4 gap-6" id="charts">
-        <aside className="lg:col-span-1 bg-white border rounded-2xl p-5 shadow-sm sticky top-24 h-fit">
+        <aside className="lg:col-span-1 bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl p-5 shadow-sm sticky top-24 h-fit">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-slate-500">Filtros</h3>
-            <button onClick={clearFilters} className="text-sm text-sky-700 hover:underline" type="button">
+            <h3 className="text-lg font-semibold text-[var(--color-muted)]">Filtros</h3>
+            <button onClick={clearFilters} className="text-sm text-[var(--color-accent)] hover:underline" type="button">
               Limpar
             </button>
           </div>
-          <label className="block text-sm font-medium text-slate-700 mb-2">Idade</label>
+          <label className="block text-sm font-medium text-[var(--color-foreground)] mb-2">Idade</label>
           <div className="flex flex-wrap gap-2">
             {ageRanges.map((range) => (
-              <button key={range.label} onClick={() => setSelectedAgeRange(range)} type="button" className={`px-3 py-1.5 rounded-full text-sm border transition ${ selectedAgeRange.label === range.label ? 'bg-sky-600 text-white border-sky-600 shadow-sm' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50' }`}>
+              <button key={range.label} onClick={() => setSelectedAgeRange(range)} type="button" className={`px-3 py-1.5 rounded-full text-sm border transition ${ selectedAgeRange.label === range.label ? 'bg-[var(--color-accent)] text-white border-[var(--color-accent)] shadow-sm' : 'bg-[var(--color-card)] text-[var(--color-foreground)] border-[var(--color-border)] hover:bg-[var(--color-muted)]' }`}>
                 {range.label}
               </button>
             ))}
           </div>
-          <label className="block text-sm font-medium text-slate-700 mt-4 mb-2">Gênero</label>
+          <label className="block text-sm font-medium text-[var(--color-foreground)] mt-4 mb-2">Gênero</label>
           <div className="flex gap-2 flex-wrap">
             {(['male', 'female', 'other'] as Gender[]).map((g) => (
-              <button key={g} onClick={() => toggleGender(g)} className={`px-3 py-1.5 rounded-full text-sm border transition ${ genderFilter[g] ? 'bg-sky-600 text-white border-sky-600 shadow-sm' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50' }`} type="button">
+              <button key={g} onClick={() => toggleGender(g)} className={`px-3 py-1.5 rounded-full text-sm border transition ${ genderFilter[g] ? 'bg-[var(--color-accent)] text-white border-[var(--color-accent)] shadow-sm' : 'bg-[var(--color-card)] text-[var(--color-foreground)] border-[var(--color-border)] hover:bg-[var(--color-muted)]' }`} type="button">
                 {g === 'male' ? 'Masculino' : g === 'female' ? 'Feminino' : 'Outro'}
               </button>
             ))}
@@ -339,60 +399,93 @@ export default function Page() {
         <section className="lg:col-span-3 space-y-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4" aria-label="Indicadores">
             {[
-              { label: 'Escore Médio', value: kAvgScore, icon: <BarChart2 className="w-4 h-4 text-sky-600" /> },
-              { label: '% com DES ≥ 800', value: `${kPct800}%`, icon: <ShieldCheck className="w-4 h-4 text-sky-600" /> },
-              { label: 'Usuários na amostra', value: kCount, icon: <Users className="w-4 h-4 text-sky-600" /> },
-              { label: 'Sinal geral', value: signal, icon: <Database className="w-4 h-4 text-sky-600" /> },
+              { label: 'Escore Médio', value: kAvgScore, icon: <BarChart2 className="w-4 h-4 text-[var(--color-accent)]" /> },
+              { label: '% com DES ≥ 800', value: `${kPct800}%`, icon: <ShieldCheck className="w-4 h-4 text-[var(--color-accent)]" /> },
+              { label: 'Usuários na amostra', value: kCount, icon: <Users className="w-4 h-4 text-[var(--color-accent)]" /> },
+              { label: 'Sinal geral', value: signal, icon: <Database className="w-4 h-4 text-[var(--color-accent)]" /> },
             ].map((kpi) => (
-              <div key={kpi.label} className="bg-white p-4 rounded-2xl shadow-sm border flex flex-col gap-2">
-                <div className="flex items-center gap-2 text-sm text-slate-500">
+              <div key={kpi.label} className="bg-[var(--color-card)] p-4 rounded-2xl shadow-sm border border-[var(--color-border)] flex flex-col gap-2">
+                <div className="flex items-center gap-2 text-sm text-[var(--color-muted)]">
                   {kpi.icon} {kpi.label}
                 </div>
-                <div className="text-2xl font-bold text-slate-900">{kpi.value}</div>
+                <div className="text-2xl font-bold text-[var(--color-foreground)]">{kpi.value}</div>
               </div>
             ))}
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white p-4 rounded-2xl shadow-sm border">
+            <div className="bg-[var(--color-card)] p-4 rounded-2xl shadow-sm border border-[var(--color-border)]">
               <div className="flex justify-between items-center mb-3">
-                <h4 className="font-semibold text-slate-500">Evolução Geral do DES (12 meses)</h4>
+                <h4 className="font-semibold text-[var(--color-muted)]">Evolução Geral do DES (12 meses)</h4>
                 <button
                   onClick={() => setIsZoomed(!isZoomed)}
-                  className="px-2 py-1 text-xs bg-sky-100 text-sky-700 rounded-md hover:bg-sky-200 transition"
+                  className="px-2 py-1 text-xs rounded-md transition text-[var(--color-accent)] bg-[var(--color-accent-100)] hover:brightness-95"
                 >
                   {isZoomed ? 'Ver Visão Geral' : 'Ampliar Gráfico'}
                 </button>
               </div>
               <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={series}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="month" />
-                  <YAxis domain={isZoomed ? ['dataMin - 50', 'dataMax + 50'] : [0, 1000]} />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="value" stroke="#0ea5e9" strokeWidth={2} dot={false} />
+                <LineChart data={series} margin={{ top: 8, right: 8, left: 4, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={colors.border} />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fill: colors.muted, fontSize: 12 }}
+                    stroke={colors.foreground}
+                  />
+                  <YAxis
+                    domain={isZoomed ? ['dataMin - 50', 'dataMax + 50'] : [0, 1000]}
+                    tick={{ fill: colors.muted, fontSize: 12 }}
+                    stroke={colors.foreground}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      background: colors.card,
+                      border: `1px solid ${colors.border}`,
+                      borderRadius: 8,
+                      color: colors.foreground,
+                      fontSize: 12,
+                    }}
+                    labelStyle={{ color: colors.muted }}
+                  />
+                  <Line type="monotone" dataKey="value" stroke={colors.accent} strokeWidth={2} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
-            <div className="bg-white p-4 rounded-2xl shadow-sm border">
-              <h4 className="font-semibold mb-3 text-slate-500">Distribuição de DES</h4>
+            <div className="bg-[var(--color-card)] p-4 rounded-2xl shadow-sm border border-[var(--color-border)]">
+              <h4 className="font-semibold mb-3 text-[var(--color-muted)]">Distribuição de DES</h4>
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={distData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="label" />
-                  <YAxis />
-                  <Tooltip />
-                  <Bar dataKey="value" fill="#38bdf8" radius={[8, 8, 0, 0]} />
+                <BarChart data={distData} margin={{ top: 8, right: 8, left: 4, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={colors.border} />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: colors.muted, fontSize: 11 }}
+                    stroke={colors.foreground}
+                  />
+                  <YAxis
+                    tick={{ fill: colors.muted, fontSize: 11 }}
+                    stroke={colors.foreground}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      background: colors.card,
+                      border: `1px solid ${colors.border}`,
+                      borderRadius: 8,
+                      color: colors.foreground,
+                      fontSize: 12,
+                    }}
+                    labelStyle={{ color: colors.muted }}
+                  />
+                  <Bar dataKey="value" fill={colors.accent} radius={[8, 8, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           </div>
           
-          <div className="bg-white p-4 rounded-2xl shadow-sm border lg:col-span-2">
-            <h4 className="font-semibold text-slate-500">Evolução Temporal por Variável (aparições em 12 meses)</h4>
+          <div className="bg-[var(--color-card)] p-4 rounded-2xl shadow-sm border border-[var(--color-border)] lg:col-span-2">
+            <h4 className="font-semibold text-[var(--color-muted)]">Evolução Temporal por Variável (aparições em 12 meses)</h4>
             
-            <div className="mt-4 mb-4 border-t border-b border-slate-200 py-3">
-              <h5 className="text-sm font-medium text-slate-600 mb-2">Selecione as variáveis para exibir:</h5>
+            <div className="mt-4 mb-4 border-t border-b border-[var(--color-border)] py-3">
+              <h5 className="text-sm font-medium text-[var(--color-muted)] mb-2">Selecione as variáveis para exibir:</h5>
               <div className="max-h-32 overflow-y-auto pr-2 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-4 gap-y-2">
                 {Object.entries(variableLabels).map(([key, label]) => (
                   <label key={key} className="flex items-center gap-2 text-sm cursor-pointer">
@@ -400,21 +493,43 @@ export default function Page() {
                       type="checkbox"
                       checked={!!selectedVariables[key]}
                       onChange={() => toggleVariable(key)}
-                      className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500"
+                      className="h-4 w-4 rounded border-[var(--color-border)] bg-[var(--color-card)] accent-[var(--color-accent)] focus:ring-[var(--color-accent)]"
                     />
-                    <span className="text-slate-700">{label}</span>
+                    <span className={'text-[var(--color-foreground)]'}>{label}</span>
                   </label>
                 ))}
               </div>
             </div>
 
             <ResponsiveContainer width="100%" height={400}>
-              <LineChart data={formattedVariableChartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="month" label={{ value: 'Mês', position: 'insideBottom', offset: -5 }} />
-                <YAxis label={{ value: 'Aparições', angle: -90, position: 'insideLeft' }} />
-                <Tooltip />
-                <Legend />
+              <LineChart data={formattedVariableChartData} margin={{ top: 10, right: 12, left: 4, bottom: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={colors.border} />
+                <XAxis
+                  dataKey="month"
+                  label={{ value: 'Mês', position: 'insideBottom', fill: colors.muted, offset: -2 }}
+                  tick={{ fill: colors.muted, fontSize: 11 }}
+                  stroke={colors.foreground}
+                />
+                <YAxis
+                  label={{ value: 'Aparições', angle: -90, position: 'insideLeft', fill: colors.muted}}
+                  tick={{ fill: colors.muted, fontSize: 11 }}
+                  stroke={colors.foreground}
+
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: colors.card,
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: 8,
+                    color: colors.foreground,
+                    fontSize: 12,
+                  }}
+                  labelStyle={{ color: colors.muted }}
+                />
+                <Legend
+                  wrapperStyle={{ color: colors.foreground, fontSize: 12}}
+                  iconSize={12}
+                />
                 {Object.keys(selectedVariables)
                   .filter(key => selectedVariables[key])
                   .map((key, index) => (
@@ -432,25 +547,25 @@ export default function Page() {
             </ResponsiveContainer>
           </div>
 
-          <div className="bg-white p-4 rounded-2xl shadow-sm border" id="users">
-            <h4 className="font-semibold mb-3 text-slate-500">Amostra de usuários (primeiros 12)</h4>
-            <div className="overflow-auto rounded-xl border">
+          <div className="bg-[var(--color-card)] p-4 rounded-2xl shadow-sm border border-[var(--color-border)]" id="users">
+            <h4 className="font-semibold mb-3 text-[var(--color-muted)]">Amostra de usuários (primeiros 12)</h4>
+            <div className="overflow-auto rounded-xl border border-[var(--color-border)]">
               <table className="min-w-full text-sm">
-                <thead className="bg-slate-100 text-slate-600 text-xs">
+                <thead className="bg-[var(--color-card)] text-[var(--color-muted)] text-xs">
                   <tr>
-                    <th className="p-2 text-left text-black">ID</th>
-                    <th className="p-2 text-left text-black">Idade</th>
-                    <th className="p-2 text-left text-black">Gênero</th>
-                    <th className="p-2 text-left text-black">DES Score</th>
+                    <th className="p-2 text-left text-[var(--color-foreground)]">ID</th>
+                    <th className="p-2 text-left text-[var(--color-foreground)]">Idade</th>
+                    <th className="p-2 text-left text-[var(--color-foreground)]">Gênero</th>
+                    <th className="p-2 text-left text-[var(--color-foreground)]">DES Score</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.slice(0, 12).map((u) => (
-                    <tr key={u.id} className="border-t">
-                      <td className="p-2 text-slate-500">{u.id}</td>
-                      <td className="p-2 text-slate-500">{u.age}</td>
-                      <td className="p-2 text-slate-500">{u.gender}</td>
-                      <td className="p-2 text-slate-500">{u.score}</td>
+                    <tr key={u.id} className="border-t border-[var(--color-border)]">
+                      <td className="p-2 text-[var(--color-muted)]">{u.id}</td>
+                      <td className="p-2 text-[var(--color-muted)]">{u.age}</td>
+                      <td className="p-2 text-[var(--color-muted)]">{u.gender}</td>
+                      <td className="p-2 text-[var(--color-muted)]">{u.score}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -460,7 +575,7 @@ export default function Page() {
         </section>
       </main>
 
-      <footer className="text-center py-6 text-sm text-slate-500 border-t border-slate-200" id="docs">
+      <footer className="text-center py-6 text-sm text-[var(--color-muted)] border-t border-[var(--color-border)]" id="docs">
         Desenvolvido para o TCC — Métrica DES. Dados mockados; futuramente substituir por API.
       </footer>
     </div>
