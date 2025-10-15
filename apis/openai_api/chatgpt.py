@@ -3,14 +3,17 @@ import sys
 import json
 import time
 import tempfile
+import re
 from datetime import datetime, timezone
-from typing import List, Dict
+from typing import List, Dict, Optional
+from bson import ObjectId
 
 from openai import OpenAI
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
 load_dotenv()
+
 
 
 # ENVIRONMENT VARIABLES & GLOBALS
@@ -25,81 +28,152 @@ COL_DATA = os.getenv("MONGO_COLLECTION_DATA")
 COL_REPORT = os.getenv("MONGO_COLLECTION_REPORTS")
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 
+TLS_CA_FILE = os.getenv("MONGO_TLS_CA_FILE", "rds-combined-ca-bundle.pem")
+
+DEFAULT_BATCH_SIZE = int(os.getenv("BATCH_SIZE", 500))  # linhas por arquivo .jsonl para Batch API
+MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-4.1")
+
 if not all([USER, PASS, HOST, PORT, AUTH_DB, DB_NAME, COL_DATA, COL_REPORT, OPENAI_KEY]):
     raise RuntimeError("Verifique se todas as variáveis de ambiente Mongo e OPENAI_API_KEY estão configuradas no .env")
 
-# MongoDB client/collections
-uri = f"mongodb://{USER}:{PASS}@{HOST}:{PORT}/?authSource={AUTH_DB}"
+# MongoDB client
+uri = (
+    f"mongodb://{USER}:{PASS}@{HOST}:{PORT}"
+    f"/?tls=true&tlsCAFile={TLS_CA_FILE}&replicaSet=rs0&readPreference=secondaryPreferred"
+    f"&retryWrites=false&authSource={AUTH_DB}"
+)
 clientDB = MongoClient(uri)
 db = clientDB[DB_NAME]
 data_coll = db[COL_DATA]
 reports_coll = db[COL_REPORT]
 
+def ensure_indexes():
+    try:
+        reports_coll.create_index("source_id", unique=True)
+    except Exception as e:
+        print(f"[WARN] create_index(reports.source_id) ignorado: {e}")
+    try:
+        data_coll.create_index([("significant", 1), ("report_id", 1)])
+    except Exception as e:
+        print(f"[WARN] create_index(data.significant, report_id) ignorado: {e}")
+
+ensure_indexes()
+
+
+# OpenAI client
+
 
 openai_client = OpenAI(api_key=OPENAI_KEY)
 
-
-DEFAULT_BATCH_SIZE = int(os.getenv("BATCH_SIZE", 500))  # linhas por arquivo .jsonl para Batch API
-MODEL_NAME = "gpt-4o-mini"
 CAMPO_LIST = (
-    "NomeDeclaradoOuSugeridoPeloAutor,"
-    "IdadeDeclaradaOuInferidaDoAutor,"
-    "GeneroAutoDeclaradoOuInferidoDoAutor,"
-    "OrientacaoSexualDeclaradaOuSugeridaPeloAutor,"
-    "StatusDeRelacionamentoDeclaradoOuSugeridoPeloAutor,"
-    "ProfissaoOcupacaoDeclaradaPeloAutor,"
-    "NivelEducacionalDeclaradoOuInferidoPeloAutor,"
-    "LocalizacaoPrincipalDeclaradaOuInferidaDoAutor,"
-    "CidadesComRelevanciaPessoalParaOAutor,"
-    "CrencaReligiosaDeclaradaOuSugeridaPeloAutor,"
-    "OpinioesPoliticasExpressasPeloAutor,"
-    "ExposicaoDeRelacionamentosPessoaisPeloAutor,"
-    "MencaoDoAutorAPosseDeCPF,"
-    "MencaoDoAutorAPosseDeRG,"
-    "MencaoDoAutorAPosseDePassaporte,"
-    "MencaoDoAutorAPosseDeTituloEleitor,"
-    "EtniaOuRacaAutoDeclaradaPeloAutor,"
-    "MencaoDoAutorAEnderecoResidencial,"
-    "MencaoDoAutorAContatoPessoal_TelefoneEmail,"
-    "MencaoDoAutorADadosBancarios,"
-    "MencaoDoAutorACartaoDeEmbarque,"
-    "IndicadoresDeRendaPropriaMencionadosPeloAutor,"
-    "MencoesAPatrimonioPessoalDoAutor,"
-    "LocalDeTrabalhoOuEstudoDeclaradoPeloAutor,"
-    "MencaoDoAutorARecebimentoDeBeneficioSocial,"
-    "MencoesAoProprioHistoricoFinanceiroPeloAutor,"
-    "MencoesDoAutorAProprioHistoricoCriminal,"
+    "NomeDeclaradoOuSugeridoPeloAutor",
+    "IdadeDeclaradaOuInferidaDoAutor",
+    "GeneroAutoDeclaradoOuInferidoDoAutor",
+    "OrientacaoSexualDeclaradaOuSugeridaPeloAutor",
+    "StatusDeRelacionamentoDeclaradoOuSugeridoPeloAutor",
+    "ProfissaoOcupacaoDeclaradaPeloAutor",
+    "NivelEducacionalDeclaradoOuInferidoPeloAutor",
+    "LocalizacaoPrincipalDeclaradaOuInferidaDoAutor",
+    "CidadesComRelevanciaPessoalParaOAutor",
+    "CrencaReligiosaDeclaradaOuSugeridaPeloAutor",
+    "OpinioesPoliticasExpressasPeloAutor",
+    "ExposicaoDeRelacionamentosPessoaisPeloAutor",
+    "MencaoDoAutorAPosseDeCPF",
+    "MencaoDoAutorAPosseDeRG",
+    "MencaoDoAutorAPosseDePassaporte",
+    "MencaoDoAutorAPosseDeTituloEleitor",
+    "EtniaOuRacaAutoDeclaradaPeloAutor",
+    "MencaoDoAutorAEnderecoResidencial",
+    "MencaoDoAutorAContatoPessoal_TelefoneEmail",
+    "MencaoDoAutorADadosBancarios",
+    "MencaoDoAutorACartaoDeEmbarque",
+    "IndicadoresDeRendaPropriaMencionadosPeloAutor",
+    "MencoesAPatrimonioPessoalDoAutor",
+    "LocalDeTrabalhoOuEstudoDeclaradoPeloAutor",
+    "MencaoDoAutorARecebimentoDeBeneficioSocial",
+    "MencoesAoProprioHistoricoFinanceiroPeloAutor",
+    "MencoesDoAutorAProprioHistoricoCriminal",
     "MencaoDoAutorAPosseDeChavePix"
 )
 
+# Helpers de prompt, seleção e parsing
+
 def build_prompt(tweets_json: str) -> str:
     return (
-        "Você é um analista especializado em perfis do Twitter. "
-        "Analise os tweets fornecidos e produza um JSON contendo apenas informações sobre o autor. "
-        "Cada campo deve indicar se o autor mencionou ou sugeriu algo relacionado a ele mesmo. "
-        "Use apenas dois valores possíveis: VERDADEIRO ou FALSO. "
-        "Não inclua texto explicativo, apenas o JSON final. "
-        "O JSON deve conter duas seções: "
-        "InformacoesIniciais (com todos os campos listados) e "
-        "InformacoesAdicionais (contendo Idade, Genero e DataUltimoTweet, quando inferíveis). "
-        f"Campos: {CAMPO_LIST}. "
-        f"Tweets: {tweets_json}"
+        "Você é um analista de perfis do Twitter/BlueSky.\n"
+        "Analise os tweets e RETORNE ESTRITAMENTE um JSON válido, sem markdown e sem comentários.\n"
+        "Formato:\n"
+        "{\n"
+        '  "InformacoesIniciais": { <TODOS os CAMPOS abaixo com valores "VERDADEIRO" ou "FALSO"> },\n'
+        '  "InformacoesAdicionais": { "Idade": <string ou null>, "Genero": <string ou null>, "DataUltimoTweet": <ISO8601 ou null> }\n'
+        "}\n"
+        f"CAMPOS: {CAMPO_LIST}.\n"
+        f"TWEETS: {tweets_json}"
     )
 
+def choose_posts(posts: List[Dict], max_posts: int = 80, max_chars: int = 8000) -> List[Dict]:
+    def parse_ts(p):
+        ts = p.get("created_at")
+        if not ts:
+            return datetime.min.replace(tzinfo=timezone.utc)
+        try:
+            # aceita 'Z' no fim
+            if ts.endswith("Z"):
+                ts = ts.replace("Z", "+00:00")
+            return datetime.fromisoformat(ts)
+        except Exception:
+            return datetime.min.replace(tzinfo=timezone.utc)
+
+    pts = [p for p in posts if p.get("lang") == "pt"]
+    pts.sort(key=parse_ts, reverse=True)
+    out, total = [], 0
+    for p in pts[:max_posts]:
+        s = json.dumps(p, ensure_ascii=False)
+        if total + len(s) > max_chars:
+            break
+        out.append(p)
+        total += len(s)
+    return out
+
+def extract_json(text: str) -> Optional[Dict]:
+
+    m = re.search(r"```json\s*(\{.*?\})\s*```", text, flags=re.S | re.I)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except Exception:
+            pass
+
+    try:
+        return json.loads(text)
+    except Exception:
+        m = re.search(r"(\{.*\})", text, flags=re.S)
+        if m:
+            try:
+                return json.loads(m.group(1))
+            except Exception:
+                pass
+    return None
 
 
-def doc_to_batch_line(doc: Dict) -> Dict:
+# Batch line builder
+
+
+def doc_to_batch_line(doc: Dict) -> Optional[Dict]:
     """Transforma um documento Mongo em uma linha JSONL para o Batch API"""
-    source_id = str(doc["_id"])
-    tweets_pt = [p for p in doc.get("posts", []) if p.get("lang") == "pt"]
-    tweets_json = json.dumps(tweets_pt, ensure_ascii=False)
 
+    source_id = str(doc["_id"])
+    tweets_pt = choose_posts(doc.get("posts", []))
+    if not tweets_pt:
+        return None
+
+    tweets_json = json.dumps(tweets_pt, ensure_ascii=False)
     prompt = build_prompt(tweets_json)
 
     body = {
         "model": MODEL_NAME,
         "input": [
-            {"role": "system", "content": "Analista de perfis de Twitter"},
+            {"role": "system", "content": "Analista de perfis de BlueSky"},
             {"role": "user", "content": prompt}
         ],
         "store": False,
@@ -113,6 +187,9 @@ def doc_to_batch_line(doc: Dict) -> Dict:
     }
 
 
+# Arquivo JSONL para Batch
+
+
 def write_jsonl(lines: List[Dict]) -> str:
     """Escreve as linhas da batch em um arquivo temporário .jsonl e retorna o caminho"""
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl", mode="w", encoding="utf-8")
@@ -122,81 +199,156 @@ def write_jsonl(lines: List[Dict]) -> str:
     return tmp.name
 
 
+# Espera pelo Batch
+
+
 def wait_batch(batch_id: str, poll_seconds: int = 60):
     """Aguarda até que o batch mude para estado 'completed' ou 'failed'/'cancelled'"""
     print(f"[INFO] Aguardando conclusão do batch {batch_id}...")
     while True:
         batch = openai_client.batches.retrieve(batch_id)
-        status = batch.status
+        status = getattr(batch, "status", None)
+        counts = getattr(batch, "request_counts", None)
         if status in {"completed", "failed", "cancelled", "expired"}:
             return batch
-        print(f"    status: {status} | concluído: {batch.request_counts.completed} / {batch.request_counts.total}")
+        if counts:
+            print(f"    status: {status} | concluído: {counts.completed} / {counts.total}")
+        else:
+            print(f"    status: {status}")
         time.sleep(poll_seconds)
+
+# [ALTERAÇÃO] leitura mais segura do arquivo de saída do Batch
+def _iter_lines_from_file(file_id: str):
+    """Itera linhas do arquivo de saída sem carregar tudo na memória."""
+    resp = openai_client.files.content(file_id)
+    # Clientes recentes têm iter_lines(); fallback para .text
+    if hasattr(resp, "iter_lines"):
+        for b in resp.iter_lines():
+            if b:
+                yield b.decode("utf-8")
+    else:
+        text = resp.text
+        for line in text.splitlines():
+            if line:
+                yield line
+
+
+# Processamento de resultados
 
 
 def processar_resultados(batch):
     """Baixa o arquivo de saída do batch e processa cada linha para Mongo"""
-    output_file_id = batch.output_file_id
-    error_file_id = batch.error_file_id
+    output_file_id = getattr(batch, "output_file_id", None)
+    error_file_id = getattr(batch, "error_file_id", None)
 
     if not output_file_id:
         print(f"[ERRO] Batch {batch.id} não possui output_file_id. Status: {batch.status}")
         return
 
-    file_resp = openai_client.files.content(output_file_id)
-    # O método .text carrega tudo na memória; se o arquivo for grande considere stream
-    conteudo = file_resp.text
-
-    for line in conteudo.splitlines():
+    processed = 0
+    for line in _iter_lines_from_file(output_file_id):
         registro = json.loads(line)
         source_id = registro["custom_id"]
-        resposta_body = registro["response"]["body"]
-        relatorio = resposta_body["choices"][0]["message"]["content"].strip()
 
-        # Insere reporte e atualiza source
+        # estrutura típica do Responses Batch
+        resposta_body = registro["response"]["body"]
+        relatorio_raw = resposta_body["choices"][0]["message"]["content"].strip()
+
+        # [ALTERAÇÃO] tentar parsear JSON do modelo e armazenar flag parse_ok
+        relatorio_dict = extract_json(relatorio_raw)
+
         try:
-            resultado = reports_coll.insert_one({
+            # [ALTERAÇÃO] upsert idempotente por source_id (evita duplicatas)
+            doc_to_insert = {
                 "source_id": source_id,
-                "report": relatorio,
-                "analyzed_at": datetime.now(timezone.utc)
-            })
-            inserted_id = resultado.inserted_id
-            data_coll.update_one({"_id": data_coll.codec_options.document_class(source_id)}, {"$set": {"report_id": inserted_id}})
-            print(f"[SALVO] Relatório para {source_id} (_id={inserted_id})")
+                "report": relatorio_dict if relatorio_dict is not None else relatorio_raw,
+                "parse_ok": relatorio_dict is not None,
+                "analyzed_at": datetime.now(timezone.utc),
+            }
+            res_upsert = reports_coll.update_one(
+                {"source_id": source_id},
+                {"$setOnInsert": doc_to_insert},
+                upsert=True
+            )
+            inserted_id = (
+                res_upsert.upserted_id
+                if res_upsert.upserted_id is not None
+                else reports_coll.find_one({"source_id": source_id}, {"_id": 1})["_id"]
+            )
+
+            # [ALTERAÇÃO] atualizar data_coll só se ainda não existir report_id
+            data_coll.update_one(
+                {"_id": ObjectId(source_id), "report_id": {"$exists": False}},
+                {"$set": {"report_id": inserted_id}}
+            )
+
+            processed += 1
+            if processed % 50 == 0:
+                print(f"[OK] Processados {processed} reports...")
         except Exception as e:
             print(f"[ERRO] Falha ao salvar relatório/atualizar doc {source_id}: {e}")
 
     if error_file_id:
-        err_resp = openai_client.files.content(error_file_id)
-        print("[AVISO] Existem erros no batch. Confira o arquivo de erro:")
-        print(err_resp.text[:1000])  # imprime os primeiros 1000 chars
+        try:
+            err_resp = openai_client.files.content(error_file_id)
+            # [ALTERAÇÃO] salvar erros em disco para auditoria
+            err_path = f"errors_{batch.id}.jsonl"
+            with open(err_path, "wb") as f:
+                # alguns clients expõem .content (bytes); se não, use .text.encode()
+                content = getattr(err_resp, "content", None)
+                if content is not None:
+                    f.write(content)
+                else:
+                    f.write(err_resp.text.encode("utf-8"))
+            print(f"[AVISO] Existem erros no batch. Arquivo salvo em: {err_path}")
+        except Exception as e:
+            print(f"[WARN] Não foi possível baixar/salvar o arquivo de erros: {e}")
+
+
+# Pipeline principal
 
 
 def processar_bsky_docs():
     filtro = {"significant": True, "report_id": {"$exists": False}}
 
+    # [ALTERAÇÃO] evitar count_documents caro antes do loop em coleções grandes
+    try:
+        total = data_coll.count_documents(filtro)
+        print(f"[INFO] Encontrados {total} documentos pendentes em `{COL_DATA}`")
+    except Exception as e:
+        print(f"[WARN] count_documents falhou/foi lento, seguindo sem: {e}")
+
     cursor = data_coll.find(filtro, projection={"posts": 1})
-    total = data_coll.count_documents(filtro)
-    print(f"[INFO] Encontrados {total} documentos pendentes em `{COL_DATA}`")
 
     batch_lines: List[Dict] = []
+    since_batch = time.perf_counter()  # [ALTERAÇÃO] timer simples por batch
     count = 0
+    total_enfileirados = 0
 
     for doc in cursor:
-        # Apenas documentos com tweets em 'pt'
-        if not any(p.get("lang") == "pt" for p in doc.get("posts", [])):
+        line = doc_to_batch_line(doc)
+        if not line:
             continue
-        batch_lines.append(doc_to_batch_line(doc))
+        batch_lines.append(line)
         count += 1
+        total_enfileirados += 1
 
-        # Quando atingirmos DEFAULT_BATCH_SIZE linhas ou for o último doc, executamos um batch
+        # Quando atingirmos DEFAULT_BATCH_SIZE linhas, executamos um batch
         if count % DEFAULT_BATCH_SIZE == 0:
+            elapsed = time.perf_counter() - since_batch
+            print(f"[INFO] Fechando batch de {len(batch_lines)} reqs (acumuladas: {total_enfileirados}) | tempo desde último: {elapsed:.1f}s")
             execute_batch(batch_lines)
             batch_lines.clear()
+            since_batch = time.perf_counter()
 
     # Processa o restante
     if batch_lines:
+        elapsed = time.perf_counter() - since_batch
+        print(f"[INFO] Fechando último batch de {len(batch_lines)} reqs | tempo desde último: {elapsed:.1f}s")
         execute_batch(batch_lines)
+
+
+# Execução do batch
 
 
 def execute_batch(lines: List[Dict]):
@@ -205,7 +357,9 @@ def execute_batch(lines: List[Dict]):
     jsonl_path = write_jsonl(lines)
 
     # 1) Upload do arquivo
-    file_obj = openai_client.files.create(file=open(jsonl_path, "rb"), purpose="batch")
+    # [ALTERAÇÃO] usar with para fechar o handle corretamente
+    with open(jsonl_path, "rb") as fh:
+        file_obj = openai_client.files.create(file=fh, purpose="batch")
     print(f"    Arquivo enviado: {file_obj.id}")
 
     # 2) Criação do batch
@@ -225,6 +379,9 @@ def execute_batch(lines: List[Dict]):
         processar_resultados(batch_final)
     else:
         print(f"[ERRO] Batch {batch_final.id} terminou com status {batch_final.status}")
+
+
+# Main
 
 
 if __name__ == "__main__":
