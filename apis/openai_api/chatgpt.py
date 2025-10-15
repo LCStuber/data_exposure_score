@@ -38,11 +38,14 @@ if not all([USER, PASS, HOST, PORT, AUTH_DB, DB_NAME, COL_DATA, COL_REPORT, OPEN
 
 # MongoDB client
 uri = (
-    f"mongodb://{USER}:{PASS}@{HOST}:{PORT}"
+    f"mongodb://{HOST}:{PORT}"
     f"/?tls=true&tlsCAFile={TLS_CA_FILE}&replicaSet=rs0&readPreference=secondaryPreferred"
     f"&retryWrites=false&authSource={AUTH_DB}"
 )
-clientDB = MongoClient(uri)
+clientDB = MongoClient(uri,
+                       username=USER,
+                       password=PASS
+                       )
 db = clientDB[DB_NAME]
 data_coll = db[COL_DATA]
 reports_coll = db[COL_REPORT]
