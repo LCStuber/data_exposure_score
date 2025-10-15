@@ -4,6 +4,7 @@ import json
 import time
 import tempfile
 import re
+import argparse
 from datetime import datetime, timezone
 from typing import List, Dict, Optional
 from bson import ObjectId
@@ -13,7 +14,6 @@ from pymongo import MongoClient
 from dotenv import load_dotenv
 
 load_dotenv()
-
 
 
 # ENVIRONMENT VARIABLES & GLOBALS
@@ -117,7 +117,6 @@ def choose_posts(posts: List[Dict], max_posts: int = 80, max_chars: int = 8000) 
         if not ts:
             return datetime.min.replace(tzinfo=timezone.utc)
         try:
-            # aceita 'Z' no fim
             if ts.endswith("Z"):
                 ts = ts.replace("Z", "+00:00")
             return datetime.fromisoformat(ts)
@@ -136,7 +135,6 @@ def choose_posts(posts: List[Dict], max_posts: int = 80, max_chars: int = 8000) 
     return out
 
 def extract_json(text: str) -> Optional[Dict]:
-
     m = re.search(r"```json\s*(\{.*?\})\s*```", text, flags=re.S | re.I)
     if m:
         try:
@@ -161,7 +159,6 @@ def extract_json(text: str) -> Optional[Dict]:
 
 def doc_to_batch_line(doc: Dict) -> Optional[Dict]:
     """Transforma um documento Mongo em uma linha JSONL para o Batch API"""
-
     source_id = str(doc["_id"])
     tweets_pt = choose_posts(doc.get("posts", []))
     if not tweets_pt:
@@ -217,11 +214,9 @@ def wait_batch(batch_id: str, poll_seconds: int = 60):
             print(f"    status: {status}")
         time.sleep(poll_seconds)
 
-# [ALTERAÇÃO] leitura mais segura do arquivo de saída do Batch
 def _iter_lines_from_file(file_id: str):
     """Itera linhas do arquivo de saída sem carregar tudo na memória."""
     resp = openai_client.files.content(file_id)
-    # Clientes recentes têm iter_lines(); fallback para .text
     if hasattr(resp, "iter_lines"):
         for b in resp.iter_lines():
             if b:
@@ -250,15 +245,11 @@ def processar_resultados(batch):
         registro = json.loads(line)
         source_id = registro["custom_id"]
 
-        # estrutura típica do Responses Batch
         resposta_body = registro["response"]["body"]
         relatorio_raw = resposta_body["choices"][0]["message"]["content"].strip()
-
-        # [ALTERAÇÃO] tentar parsear JSON do modelo e armazenar flag parse_ok
         relatorio_dict = extract_json(relatorio_raw)
 
         try:
-            # [ALTERAÇÃO] upsert idempotente por source_id (evita duplicatas)
             doc_to_insert = {
                 "source_id": source_id,
                 "report": relatorio_dict if relatorio_dict is not None else relatorio_raw,
@@ -276,7 +267,6 @@ def processar_resultados(batch):
                 else reports_coll.find_one({"source_id": source_id}, {"_id": 1})["_id"]
             )
 
-            # [ALTERAÇÃO] atualizar data_coll só se ainda não existir report_id
             data_coll.update_one(
                 {"_id": ObjectId(source_id), "report_id": {"$exists": False}},
                 {"$set": {"report_id": inserted_id}}
@@ -291,10 +281,8 @@ def processar_resultados(batch):
     if error_file_id:
         try:
             err_resp = openai_client.files.content(error_file_id)
-            # [ALTERAÇÃO] salvar erros em disco para auditoria
             err_path = f"errors_{batch.id}.jsonl"
             with open(err_path, "wb") as f:
-                # alguns clients expõem .content (bytes); se não, use .text.encode()
                 content = getattr(err_resp, "content", None)
                 if content is not None:
                     f.write(content)
@@ -308,35 +296,39 @@ def processar_resultados(batch):
 # Pipeline principal
 
 
-def processar_bsky_docs():
+def processar_bsky_docs(max_docs: Optional[int] = None):
+    """
+    Processa documentos da coleção de dados e cria batches.
+    :param max_docs: número máximo de contas a analisar; None = ilimitado
+    """
     filtro = {"significant": True, "report_id": {"$exists": False}}
 
-    # [ALTERAÇÃO] evitar count_documents caro antes do loop em coleções grandes
     try:
         total = data_coll.count_documents(filtro)
-        print(f"[INFO] Encontrados {total} documentos pendentes em `{COL_DATA}`")
+        print(f"[INFO] Pendente em `{COL_DATA}`: {total} documentos (sem report_id)")
     except Exception as e:
         print(f"[WARN] count_documents falhou/foi lento, seguindo sem: {e}")
 
     cursor = data_coll.find(filtro, projection={"posts": 1})
 
     batch_lines: List[Dict] = []
-    since_batch = time.perf_counter()  # [ALTERAÇÃO] timer simples por batch
-    count = 0
+    since_batch = time.perf_counter()
     total_enfileirados = 0
 
     for doc in cursor:
+        if max_docs is not None and total_enfileirados >= max_docs:
+            break
+
         line = doc_to_batch_line(doc)
         if not line:
             continue
         batch_lines.append(line)
-        count += 1
         total_enfileirados += 1
 
-        # Quando atingirmos DEFAULT_BATCH_SIZE linhas, executamos um batch
-        if count % DEFAULT_BATCH_SIZE == 0:
+        # fecha batch quando atingir o DEFAULT_BATCH_SIZE
+        if len(batch_lines) >= DEFAULT_BATCH_SIZE:
             elapsed = time.perf_counter() - since_batch
-            print(f"[INFO] Fechando batch de {len(batch_lines)} reqs (acumuladas: {total_enfileirados}) | tempo desde último: {elapsed:.1f}s")
+            print(f"[INFO] Fechando batch de {len(batch_lines)} reqs (acumuladas: {total_enfileirados}) | +{elapsed:.1f}s")
             execute_batch(batch_lines)
             batch_lines.clear()
             since_batch = time.perf_counter()
@@ -344,25 +336,22 @@ def processar_bsky_docs():
     # Processa o restante
     if batch_lines:
         elapsed = time.perf_counter() - since_batch
-        print(f"[INFO] Fechando último batch de {len(batch_lines)} reqs | tempo desde último: {elapsed:.1f}s")
+        print(f"[INFO] Fechando último batch de {len(batch_lines)} reqs (total enfileirado: {total_enfileirados}) | +{elapsed:.1f}s")
         execute_batch(batch_lines)
 
+    print(f"[INFO] Finalizado. Contas enfileiradas para análise: {total_enfileirados}{'' if max_docs is None else f' / alvo {max_docs}'}")
 
 # Execução do batch
-
 
 def execute_batch(lines: List[Dict]):
     """Executa um batch dado uma lista de linhas JSONL"""
     print(f"[INFO] Criando batch com {len(lines)} requisições...")
     jsonl_path = write_jsonl(lines)
 
-    # 1) Upload do arquivo
-    # [ALTERAÇÃO] usar with para fechar o handle corretamente
     with open(jsonl_path, "rb") as fh:
         file_obj = openai_client.files.create(file=fh, purpose="batch")
     print(f"    Arquivo enviado: {file_obj.id}")
 
-    # 2) Criação do batch
     batch_obj = openai_client.batches.create(
         input_file_id=file_obj.id,
         endpoint="/v1/responses",
@@ -371,21 +360,39 @@ def execute_batch(lines: List[Dict]):
     )
     print(f"    Batch iniciado: {batch_obj.id} | status: {batch_obj.status}")
 
-    # 3) Aguardar conclusão
     batch_final = wait_batch(batch_obj.id, poll_seconds=60)
 
-    # 4) Processar resultados e atualizar Mongo
     if batch_final.status == "completed":
         processar_resultados(batch_final)
     else:
         print(f"[ERRO] Batch {batch_final.id} terminou com status {batch_final.status}")
 
 
-# Main
+# Main (CLI)
 
+
+def main():
+    parser = argparse.ArgumentParser(description="Processa contas e gera relatórios via OpenAI Batch.")
+    parser.add_argument("-n", "--num", type=int, default=None,
+                        help="Número MÁXIMO de contas a analisar (default: ilimitado)")
+    parser.add_argument("--batch-size", type=int, default=None,
+                        help="Sobrescreve o batch size (linhas por arquivo .jsonl)")
+    args = parser.parse_args()
+
+    global DEFAULT_BATCH_SIZE
+    if args.batch_size is not None and args.batch_size > 0:
+        DEFAULT_BATCH_SIZE = args.batch_size
+        print(f"[INFO] Batch size sobrescrito para {DEFAULT_BATCH_SIZE}")
+
+    if args.num is not None and args.num <= 0:
+        print("[INFO] Nada a fazer: --num <= 0")
+        return
+
+    print(f"[INFO] Iniciando pipeline. Limite de contas: {args.num if args.num is not None else 'ilimitado'}")
+    processar_bsky_docs(max_docs=args.num)
 
 if __name__ == "__main__":
     try:
-        processar_bsky_docs()
+        main()
     except KeyboardInterrupt:
         print("[INFO] Execução interrompida pelo usuário.")
