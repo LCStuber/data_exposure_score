@@ -108,7 +108,7 @@ def build_prompt(tweets_json: str) -> str:
         "Formato:\n"
         "{\n"
         '  "InformacoesIniciais": { <TODOS os CAMPOS abaixo com valores "VERDADEIRO" ou "FALSO"> },\n'
-        '  "InformacoesAdicionais": { "Idade": <string ou null>, "Genero": <string ou null>, "DataUltimoTweet": <ISO8601 ou null> }\n'
+        '  "InformacoesAdicionais": { "Idade": <numero apenas ou null>, "Genero": <masculino, feminino, ou outros ou null>, "DataUltimoTweet": <ISO8601 ou null> }\n'
         "}\n"
         f"CAMPOS: {CAMPO_LIST}.\n"
         f"TWEETS: {tweets_json}"
