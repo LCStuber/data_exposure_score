@@ -250,7 +250,7 @@ def doc_to_batch_line(doc: Dict) -> Optional[Dict]:
     return {
         "custom_id": source_id,
         "method": "POST",
-        "url": "/v1/responses",
+        "url": "/v1/chat/completions",
         "body": body,
     }
 
