@@ -240,7 +240,7 @@ def doc_to_batch_line(doc: Dict) -> Optional[Dict]:
 
     body = {
         "model": MODEL_NAME,
-        "input": [
+        "messages": [
             {"role": "system", "content": "Analista de perfis de BlueSky"},
             {"role": "user", "content": prompt}
         ],
