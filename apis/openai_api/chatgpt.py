@@ -218,17 +218,78 @@ def wait_batch(batch_id: str, poll_seconds: int = 60):
         time.sleep(poll_seconds)
 
 def _iter_lines_from_file(file_id: str):
-    """Itera linhas do arquivo de saída sem carregar tudo na memória."""
+    """Itera linhas do arquivo de saída tratando bytes/str e JSONs 'entre aspas'."""
     resp = openai_client.files.content(file_id)
     if hasattr(resp, "iter_lines"):
         for b in resp.iter_lines():
-            if b:
-                yield b.decode("utf-8")
-    else:
-        text = resp.text
-        for line in text.splitlines():
-            if line:
+            if not b:
+                continue
+            # 1) garantir que temos str
+            if isinstance(b, (bytes, bytearray)):
+                line = b.decode("utf-8")
+            else:
+                line = b
+            line = line.strip()
+            if not line:
+                continue
+
+            # 2) tentar descarregar JSON — pode ser: {"a":1}  OU  "\"{...}\""  (string com JSON dentro)
+            try:
+                parsed_once = json.loads(line)
+            except Exception:
+                # não é JSON — devolve a linha original
                 yield line
+                continue
+
+            # Se parsed_once for string -> possivelmente contém o JSON "real" (escapado)
+            if isinstance(parsed_once, str):
+                try:
+                    parsed_twice = json.loads(parsed_once)
+                    # se virou dict/list, re-serializamos para manter saída como string JSON
+                    if isinstance(parsed_twice, (dict, list)):
+                        yield json.dumps(parsed_twice, ensure_ascii=False)
+                    else:
+                        # primitivos -> devolve como string
+                        yield str(parsed_twice)
+                except Exception:
+                    # parsed_once era só uma string comum: devolve-a
+                    yield parsed_once
+            elif isinstance(parsed_once, (dict, list)):
+                # já é objeto JSON: re-serializa para string (compatibilidade)
+                yield json.dumps(parsed_once, ensure_ascii=False)
+            else:
+                # número, bool etc. -> devolve como string
+                yield str(parsed_once)
+    else:
+        # fallback: usar .text ou .content
+        text = getattr(resp, "text", None)
+        if text is None:
+            content = getattr(resp, "content", None)
+            if content is None:
+                return
+            text = content.decode("utf-8") if isinstance(content, (bytes, bytearray)) else str(content)
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                parsed_once = json.loads(line)
+                if isinstance(parsed_once, str):
+                    try:
+                        parsed_twice = json.loads(parsed_once)
+                        if isinstance(parsed_twice, (dict, list)):
+                            yield json.dumps(parsed_twice, ensure_ascii=False)
+                        else:
+                            yield str(parsed_twice)
+                    except Exception:
+                        yield parsed_once
+                elif isinstance(parsed_once, (dict, list)):
+                    yield json.dumps(parsed_once, ensure_ascii=False)
+                else:
+                    yield str(parsed_once)
+            except Exception:
+                yield line
+
 
 
 # Processamento de resultados
