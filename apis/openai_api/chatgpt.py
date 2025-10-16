@@ -488,12 +488,16 @@ def processar_bsky_docs(max_docs: Optional[int] = None):
 # Execução do batch
 
 def execute_batch(lines: List[Dict]):
-    """Executa um batch dado uma lista de linhas JSONL"""
     print(f"[INFO] Criando batch com {len(lines)} requisições...")
     jsonl_path = write_jsonl(lines)
 
     with open(jsonl_path, "rb") as fh:
         file_obj = openai_client.files.create(file=fh, purpose="batch")
+    try:
+        os.unlink(jsonl_path)
+    except Exception:
+        pass
+
     print(f"    Arquivo enviado: {file_obj.id}")
 
     batch_obj = openai_client.batches.create(
