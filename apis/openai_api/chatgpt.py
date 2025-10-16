@@ -489,7 +489,7 @@ def execute_batch(lines: List[Dict]):
 
     batch_obj = openai_client.batches.create(
         input_file_id=file_obj.id,
-        endpoint="/v1/responses",
+        endpoint="/v1/chat/completions",
         completion_window="24h",
         metadata={"origin": "twitter-bsky-script"}
     )
