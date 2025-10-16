@@ -433,46 +433,55 @@ def processar_resultados(batch):
 
 def processar_bsky_docs(max_docs: Optional[int] = None):
     """
-    Processa documentos da coleção de dados e cria batches.
-    :param max_docs: número máximo de contas a analisar; None = ilimitado
+    Processa documentos da coleção de dados criando batches sem manter cursors abertos
+    durante a espera pelos resultados (evita CursorNotFound no DocumentDB).
     """
-    filtro = {"significant": True, "report_id": {"$exists": False}}
+    filtro_base = {"significant": True, "report_id": {"$exists": False}}
 
     try:
-        total = data_coll.count_documents(filtro)
+        total = data_coll.count_documents(filtro_base)
         print(f"[INFO] Pendente em `{COL_DATA}`: {total} documentos (sem report_id)")
     except Exception as e:
         print(f"[WARN] count_documents falhou/foi lento, seguindo sem: {e}")
 
-    cursor = data_coll.find(filtro, projection={"posts": 1})
-
-    batch_lines: List[Dict] = []
-    since_batch = time.perf_counter()
     total_enfileirados = 0
 
-    for doc in cursor:
-        if max_docs is not None and total_enfileirados >= max_docs:
+    while True:
+        # Respeita --num, se fornecido
+        restante = (max_docs - total_enfileirados) if max_docs is not None else None
+        if restante is not None and restante <= 0:
             break
 
-        line = doc_to_batch_line(doc)
-        if not line:
+        # Quanto buscar neste ciclo
+        fetch_n = min(DEFAULT_BATCH_SIZE, restante) if restante is not None else DEFAULT_BATCH_SIZE
+
+        # >>> MATERIALIZA EM LISTA (fecha o cursor logo em seguida) <<<
+        docs = list(
+            data_coll.find(filtro_base, projection={"posts": 1})
+                     .limit(fetch_n)
+        )
+
+        if not docs:
+            break  # nada mais a processar
+
+        batch_lines: List[Dict] = []
+        since_batch = time.perf_counter()
+
+        for doc in docs:
+            line = doc_to_batch_line(doc)
+            if line:
+                batch_lines.append(line)
+
+        if not batch_lines:
+            # Pode acontecer caso vários docs não tenham posts em pt, etc.
             continue
-        batch_lines.append(line)
-        total_enfileirados += 1
 
-        # fecha batch quando atingir o DEFAULT_BATCH_SIZE
-        if len(batch_lines) >= DEFAULT_BATCH_SIZE:
-            elapsed = time.perf_counter() - since_batch
-            print(f"[INFO] Fechando batch de {len(batch_lines)} reqs (acumuladas: {total_enfileirados}) | +{elapsed:.1f}s")
-            execute_batch(batch_lines)
-            batch_lines.clear()
-            since_batch = time.perf_counter()
-
-    # Processa o restante
-    if batch_lines:
         elapsed = time.perf_counter() - since_batch
-        print(f"[INFO] Fechando último batch de {len(batch_lines)} reqs (total enfileirado: {total_enfileirados}) | +{elapsed:.1f}s")
-        execute_batch(batch_lines)
+        print(f"[INFO] Fechando batch de {len(batch_lines)} reqs (acumuladas: {total_enfileirados + len(batch_lines)}) | +{elapsed:.1f}s")
+
+        execute_batch(batch_lines)  # aqui você espera o batch terminar, sem cursor aberto
+
+        total_enfileirados += len(batch_lines)
 
     print(f"[INFO] Finalizado. Contas enfileiradas para análise: {total_enfileirados}{'' if max_docs is None else f' / alvo {max_docs}'}")
 
