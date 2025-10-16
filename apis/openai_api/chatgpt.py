@@ -1,5 +1,5 @@
 import os
-import sys
+import logging
 import json
 import time
 import tempfile
@@ -464,8 +464,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("[INFO] Execução interrompida pelo usuário.")
 
-import json
-import logging
+
 
 def _normalize_response_body(raw):
     """
