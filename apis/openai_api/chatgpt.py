@@ -160,6 +160,74 @@ def extract_json(text: str) -> Optional[Dict]:
 # Batch line builder
 
 
+def _normalize_response_body(raw):
+    """
+    Garante que raw seja um dict (quando possível). Se não for JSON, devolve como string.
+    """
+    if isinstance(raw, (bytes, bytearray)):
+        raw = raw.decode("utf-8", errors="replace")
+    if isinstance(raw, str):
+        raw_str = raw.strip()
+        # tenta desserializar uma vez (pode ser string com JSON dentro)
+        try:
+            parsed = json.loads(raw_str)
+            # Se devolveu uma string (JSON serializado dentro de uma string), tenta novamente
+            if isinstance(parsed, str):
+                try:
+                    parsed2 = json.loads(parsed)
+                    return parsed2
+                except Exception:
+                    return parsed  # é só uma string normal
+            return parsed
+        except Exception:
+            return raw_str
+    return raw  # já é dict/list ou outro objeto
+
+def extract_text_from_response(resposta_body):
+    """
+    Retorna o texto útil do objeto de resposta (ou uma string de erro/fallback).
+    """
+    try:
+        body = _normalize_response_body(resposta_body)
+        # Se for string já normalizado, devolve-o
+        if isinstance(body, str):
+            return body
+
+        # 1) padrão OpenAI Chat/Completions
+        if isinstance(body, dict):
+            # se houver choices
+            if "choices" in body and isinstance(body["choices"], (list, tuple)) and len(body["choices"]) > 0:
+                choice = body["choices"][0]
+                # Chat completions estilo: {"message": {"content": "..."}}
+                if isinstance(choice, dict):
+                    if "message" in choice and isinstance(choice["message"], dict) and "content" in choice["message"]:
+                        return str(choice["message"]["content"]).strip()
+                    # Completions estilo antigo: {"text": "..."}
+                    if "text" in choice:
+                        return str(choice["text"]).strip()
+                    # Delta streaming content (pode precisar de tratamento)
+                    if "delta" in choice:
+                        return json.dumps(choice["delta"], ensure_ascii=False)
+            # 2) se houver campo de erro
+            if "error" in body:
+                try:
+                    return "__API_ERROR__ " + json.dumps(body["error"], ensure_ascii=False)
+                except Exception:
+                    return "__API_ERROR__ " + str(body["error"])
+            # 3) outros campos comuns
+            for possible in ("output", "results", "result", "data"):
+                if possible in body:
+                    return json.dumps(body[possible], ensure_ascii=False)
+            # 4) fallback: devolve o corpo inteiro serializado
+            return json.dumps(body, ensure_ascii=False)
+        # Se chegamos aqui, devolve string do objeto
+        return str(body)
+    except Exception as e:
+        logging.exception("Erro extraindo texto da resposta")
+        return f"__PARSE_EXCEPTION__ {e} | raw={repr(resposta_body)}"
+
+
+
 def doc_to_batch_line(doc: Dict) -> Optional[Dict]:
     """Transforma um documento Mongo em uma linha JSONL para o Batch API"""
     source_id = str(doc["_id"])
@@ -463,71 +531,3 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print("[INFO] Execução interrompida pelo usuário.")
-
-
-
-def _normalize_response_body(raw):
-    """
-    Garante que raw seja um dict (quando possível). Se não for JSON, devolve como string.
-    """
-    if isinstance(raw, (bytes, bytearray)):
-        raw = raw.decode("utf-8", errors="replace")
-    if isinstance(raw, str):
-        raw_str = raw.strip()
-        # tenta desserializar uma vez (pode ser string com JSON dentro)
-        try:
-            parsed = json.loads(raw_str)
-            # Se devolveu uma string (JSON serializado dentro de uma string), tenta novamente
-            if isinstance(parsed, str):
-                try:
-                    parsed2 = json.loads(parsed)
-                    return parsed2
-                except Exception:
-                    return parsed  # é só uma string normal
-            return parsed
-        except Exception:
-            return raw_str
-    return raw  # já é dict/list ou outro objeto
-
-def extract_text_from_response(resposta_body):
-    """
-    Retorna o texto útil do objeto de resposta (ou uma string de erro/fallback).
-    """
-    try:
-        body = _normalize_response_body(resposta_body)
-        # Se for string já normalizado, devolve-o
-        if isinstance(body, str):
-            return body
-
-        # 1) padrão OpenAI Chat/Completions
-        if isinstance(body, dict):
-            # se houver choices
-            if "choices" in body and isinstance(body["choices"], (list, tuple)) and len(body["choices"]) > 0:
-                choice = body["choices"][0]
-                # Chat completions estilo: {"message": {"content": "..."}}
-                if isinstance(choice, dict):
-                    if "message" in choice and isinstance(choice["message"], dict) and "content" in choice["message"]:
-                        return str(choice["message"]["content"]).strip()
-                    # Completions estilo antigo: {"text": "..."}
-                    if "text" in choice:
-                        return str(choice["text"]).strip()
-                    # Delta streaming content (pode precisar de tratamento)
-                    if "delta" in choice:
-                        return json.dumps(choice["delta"], ensure_ascii=False)
-            # 2) se houver campo de erro
-            if "error" in body:
-                try:
-                    return "__API_ERROR__ " + json.dumps(body["error"], ensure_ascii=False)
-                except Exception:
-                    return "__API_ERROR__ " + str(body["error"])
-            # 3) outros campos comuns
-            for possible in ("output", "results", "result", "data"):
-                if possible in body:
-                    return json.dumps(body[possible], ensure_ascii=False)
-            # 4) fallback: devolve o corpo inteiro serializado
-            return json.dumps(body, ensure_ascii=False)
-        # Se chegamos aqui, devolve string do objeto
-        return str(body)
-    except Exception as e:
-        logging.exception("Erro extraindo texto da resposta")
-        return f"__PARSE_EXCEPTION__ {e} | raw={repr(resposta_body)}"
