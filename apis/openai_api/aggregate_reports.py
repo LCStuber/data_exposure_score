@@ -28,16 +28,14 @@ ageRanges = [
 ]
 AGE_LABELS = [r["label"] for r in ageRanges]
 
-# --- NOVAS CONSTANTES PARA FAIXA DE DES ---
 DES_RANGES_DEF = [
   { "label": "0-199", "min": 0, "max": 200 },
   { "label": "200-399", "min": 200, "max": 400 },
   { "label": "400-599", "min": 400, "max": 600 },
   { "label": "600-799", "min": 600, "max": 800 },
-  { "label": "800-1000", "min": 800, "max": 1000 }, # Última faixa é inclusiva
+  { "label": "800-1000", "min": 800, "max": 1000 }, 
 ]
 DES_RANGE_LABELS = [r["label"] for r in DES_RANGES_DEF]
-# --- FIM DAS NOVAS CONSTANTES ---
 
 CAMPO_LIST = [
     "NomeDeclaradoOuSugeridoPeloAutor",
@@ -186,40 +184,34 @@ def age_range_label(age_value: Optional[Any]) -> str:
             return rng["label"]
     return "Outros"
 
-# --- NOVA FUNÇÃO HELPER ---
 def get_des_range_label(score: float) -> Optional[str]:
     """Maps a DES score to its corresponding range label."""
     if score is None:
         return None
     
-    # Trata a última faixa [800, 1000] (inclusiva)
     last_range = DES_RANGES_DEF[-1]
     if last_range["min"] <= score <= last_range["max"]:
         return last_range["label"]
     
-    # Trata as faixas [min, max)
     for rng in DES_RANGES_DEF[:-1]:
         if rng["min"] <= score < rng["max"]:
             return rng["label"]
             
-    # Fallback para valores fora do esperado (embora o score seja clampado)
     if score < 0:
         return DES_RANGES_DEF[0]["label"]
     if score > 1000:
         return DES_RANGES_DEF[-1]["label"]
         
     return None
-# --- FIM DA NOVA FUNÇÃO ---
 
 
-# --- FUNÇÕES DE AGREGAÇÃO MODIFICADAS ---
 def make_acc():
     """Cria um acumulador com as novas métricas."""
     return {
         "count": 0,
         "sum_des": 0.0,
-        "count_gt_800": 0,  # Novo: contador para scores > 800
-        "des_range_counts": {label: 0 for label in DES_RANGE_LABELS} # Novo: contagem por faixa
+        "count_gt_800": 0, 
+        "des_range_counts": {label: 0 for label in DES_RANGE_LABELS} 
     }
 
 def combine(acc, des_val):
@@ -227,11 +219,9 @@ def combine(acc, des_val):
     acc["count"] += 1
     acc["sum_des"] += des_val
     
-    # Novo: checa se é > 800
     if des_val > 800:
         acc["count_gt_800"] += 1
     
-    # Novo: encontra a faixa de DES e incrementa
     range_label = get_des_range_label(des_val)
     if range_label and range_label in acc["des_range_counts"]:
         acc["des_range_counts"][range_label] += 1
@@ -252,11 +242,9 @@ def finalize(acc):
     
     avg_des = acc["sum_des"] / count
     
-    # Novo: calcula % > 800
     count_gt_800 = acc.get("count_gt_800", 0)
     percent_gt_800 = (count_gt_800 / count) * 100.0
     
-    # Novo: calcula % por faixa
     range_counts = acc.get("des_range_counts", {label: 0 for label in DES_RANGE_LABELS})
     des_range_percents = {
         label: (c / count) * 100.0 
@@ -271,7 +259,6 @@ def finalize(acc):
         "des_range_counts": range_counts,
         "des_range_percents": des_range_percents
     }
-# --- FIM DAS FUNÇÕES MODIFICADAS ---
 
 
 def process_reports_from_iterable(iter_reports):
@@ -281,9 +268,7 @@ def process_reports_from_iterable(iter_reports):
     monthly_general = defaultdict(make_acc)
     monthly_by_age = defaultdict(lambda: defaultdict(make_acc))
     monthly_by_gender = defaultdict(lambda: defaultdict(make_acc))
-    # --- NOVA VISÃO ---
     by_age_and_gender = defaultdict(lambda: defaultdict(make_acc))
-    # --- FIM DA NOVA VISÃO ---
 
     field_counts_overall = {c: 0 for c in CAMPO_LIST}
     monthly_field_counts = defaultdict(lambda: {c: 0 for c in CAMPO_LIST})
@@ -316,9 +301,7 @@ def process_reports_from_iterable(iter_reports):
         combine(by_age[age_label], des_score)
         combine(by_gender[gen_label], des_score)
         
-        # --- NOVA VISÃO ---
         combine(by_age_and_gender[age_label][gen_label], des_score)
-        # --- FIM DA NOVA VISÃO ---
 
         dt = adicionais.get("DataUltimoTweet") or adicionais.get("data_ultimo_tweet") or adicionais.get("DataUltimoPost")
         month = parse_iso_month(dt)
@@ -350,12 +333,10 @@ def process_reports_from_iterable(iter_reports):
             month: {g: finalize(acc) for g, acc in gen_map.items()}
             for month, gen_map in monthly_by_gender.items()
         },
-        # --- NOVA VISÃO ---
         "by_age_and_gender": {
             age: {g: finalize(acc) for g, acc in gen_map.items()}
             for age, gen_map in by_age_and_gender.items()
         },
-        # --- FIM DA NOVA VISÃO ---
         "field_counts_overall": field_counts_overall,
         "monthly_field_counts": {m: v for m, v in monthly_field_counts.items()},
         "by_age_field_counts": {age: v for age, v in by_age_field_counts.items()},
@@ -364,8 +345,8 @@ def process_reports_from_iterable(iter_reports):
     return result
 
 def main():
-    global script_to_run_final # Acessa a variável global para salvá-la
-    
+    global script_to_run_final 
+
     use_db = all([USER, PASS, HOST, PORT, AUTH_DB, DB_NAME]) and MongoClient is not None
     docs_iter = None
     client = None
@@ -406,7 +387,7 @@ def main():
                         "InformacoesIniciais": {
                             "NomeDeclaradoOuSugeridoPeloAutor": "VERDADEIRO",
                             "IdadeDeclaradaOuInferidaDoAutor": "VERDADEIRO",
-                            "MencaoDoAutorADadosBancarios": "VERDADEIRO" # Exposição alta -> DES baixo
+                            "MencaoDoAutorADadosBancarios": "VERDADEIRO" 
                         },
                         "InformacoesAdicionais": {
                             "Idade": 22,
@@ -418,7 +399,7 @@ def main():
                 {
                     "report": {
                         "InformacoesIniciais": {
-                            "NomeDeclaradoOuSugeridoPeloAutor": "VERDADEIRO" # Exposição baixa -> DES alto
+                            "NomeDeclaradoOuSugeridoPeloAutor": "VERDADEIRO" 
                         },
                         "InformacoesAdicionais": {
                             "Idade": 35,
@@ -431,7 +412,7 @@ def main():
                     "report": {
                         "InformacoesIniciais": {
                             "MencaoDoAutorAPosseDeCPF": "VERDADEIRO",
-                            "MencaoDoAutorAContatoPessoal_TelefoneEmail": "VERDADEIRO" # Exposição alta -> DES baixo
+                            "MencaoDoAutorAContatoPessoal_TelefoneEmail": "VERDADEIRO" 
                         },
                         "InformacoesAdicionais": {
                             "Idade": 40,
@@ -441,7 +422,7 @@ def main():
                     }
                 },
                 {
-                    "report": { # Exposição 0 -> DES 1000
+                    "report": { 
                         "InformacoesIniciais": {},
                         "InformacoesAdicionais": {
                             "Idade": 68,
@@ -469,24 +450,20 @@ def main():
 
     if not docs_iter:
         print("[ERROR] Nenhum documento para processar (DB e fallback falharam).")
-        agg = process_reports_from_iterable([]) # Gera um resultado vazio
+        agg = process_reports_from_iterable([]) 
     else:
         agg = process_reports_from_iterable(docs_iter)
     
-    # Imprime os resultados no stdout
     print("[INFO] Resultados da Agregação:")
     print(json.dumps(agg, ensure_ascii=False, indent=2))
     
-    # Salva o script modificado
     try:
-        # Nota: Estamos salvando a string 'script_to_run_final' que está no escopo global
         with open("aggregate_reports_final.py", "w", encoding="utf-8") as f:
             f.write(script_to_run_final)
         print("[INFO] Script modificado salvo em 'aggregate_reports_final.py'.")
     except Exception as e_save_script:
         print(f"[WARN] Falha ao salvar script modificado: {e_save_script}")
         
-    # Salva os resultados da agregação
     try:
         with open("aggregation_results_final.json", "w", encoding="utf-8") as f:
             json.dump(agg, f, ensure_ascii=False, indent=2)
