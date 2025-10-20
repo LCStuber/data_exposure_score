@@ -1,3 +1,16 @@
+#!/usr/bin/env python3
+"""
+aggregate_reports.py - com contagem de aparição por campo
+
+Saídas principais adicionadas:
+ - field_counts_overall: { campo: aparicoes }
+ - monthly_field_counts: { 'YYYY-MM': { campo: aparicoes } }
+ - by_age_field_counts: { faixa: { campo: aparicoes } }
+ - by_gender_field_counts: { genero: { campo: aparicoes } }
+
+Mantém: overall, by_age, by_gender, monthly_general, monthly_by_age, monthly_by_gender (médias de DES).
+"""
+
 import os
 import json
 from datetime import datetime
@@ -9,6 +22,7 @@ try:
 except Exception:
     MongoClient = None
 
+# ----------------- Config / Campos -----------------
 USER = os.getenv("MONGO_USER")
 PASS = os.getenv("MONGO_PASS")
 HOST = os.getenv("MONGO_HOST")
@@ -58,8 +72,8 @@ CAMPO_LIST = [
     "MencoesDoAutorAProprioHistoricoCriminal",
     "MencaoDoAutorAPosseDeChavePix"
 ]
-TOTAL_FIELDS = len(CAMPO_LIST)
 
+# ----------------- Lógica DES (do seu des.py) -----------------
 categorias = {
     "Informação Financeira": {"Impacto": 10, "Explorabilidade": 8},
     "Documentos Pessoais": {"Impacto": 10, "Explorabilidade": 7},
@@ -102,6 +116,41 @@ exposicao_autor = {
 
 DES_MAX = sum(v["Impacto"] * v["Explorabilidade"] for v in exposicao_autor.values())
 
+# ----------------- Helpers (reaproveitáveis) -----------------
+def is_exposed(val: Any) -> bool:
+    """Determina se um campo deve ser contado como 'apareceu/exposto'."""
+    if val is None:
+        return False
+    if isinstance(val, str):
+        return val.strip().upper() == "VERDADEIRO"
+    if isinstance(val, bool):
+        return bool(val)
+    if isinstance(val, (int, float)):
+        return val != 0
+    if isinstance(val, (list, tuple)):
+        for x in val:
+            if is_exposed(x):
+                return True
+        return False
+    try:
+        return str(val).strip().upper() == "VERDADEIRO"
+    except Exception:
+        return False
+
+def compute_des_from_informacoes(iniciais: Dict[str, Any]) -> float:
+    des = 0.0
+    if not isinstance(iniciais, dict):
+        return 1000.0
+    for campo, weights in exposicao_autor.items():
+        if is_exposed(iniciais.get(campo, None)):
+            des += weights["Impacto"] * weights["Explorabilidade"]
+    if DES_MAX == 0:
+        return 1000.0
+    des_scaled = (des / DES_MAX) * 1000.0
+    des_final = 1000.0 - des_scaled
+    des_final = max(0.0, min(1000.0, des_final))
+    return des_final
+
 def parse_iso_month(dt_str: Optional[str]) -> str:
     if not dt_str:
         return "unknown"
@@ -142,58 +191,7 @@ def age_range_label(age_value: Optional[Any]) -> str:
             return rng["label"]
     return "Outros"
 
-def compute_des_from_informacoes(iniciais: Dict[str, Any]) -> float:
-    """
-    Implementa exatamente a fórmula do des.py:
-      - percorre exposicao_autor
-      - se campo marcado (VERDADEIRO / True / lista contendo VERDADEIRO / número != 0) -> curr_value = 1
-      - curr_value *= Impacto * Explorabilidade
-      - des = soma(curr_value)
-      - des_scaled = (des / des_max) * 1000
-      - des_final = 1000 - des_scaled
-    Retorna des_final (valor mais alto = mais "seguro" segundo seu notebook).
-    """
-    des = 0.0
-    if not isinstance(iniciais, dict):
-        return 1000.0 
-    for campo, weights in exposicao_autor.items():
-        present = False
-        val = iniciais.get(campo, None)
-        if val is None:
-            present = False
-        elif isinstance(val, str):
-            if val.strip().upper() == "VERDADEIRO":
-                present = True
-        elif isinstance(val, bool):
-            present = bool(val)
-        elif isinstance(val, (int, float)):
-            present = (val != 0)
-        elif isinstance(val, (list, tuple)):
-            for x in val:
-                if (isinstance(x, str) and x.strip().upper() == "VERDADEIRO") or x is True or (isinstance(x, (int,float)) and x!=0):
-                    present = True
-                    break
-        else:
-            try:
-                if str(val).strip().upper() == "VERDADEIRO":
-                    present = True
-            except Exception:
-                present = False
-
-        if present:
-            curr_value = weights["Impacto"] * weights["Explorabilidade"]
-            des += curr_value
-
-    if DES_MAX == 0:
-        return 1000.0
-    des_scaled = (des / DES_MAX) * 1000.0
-    des_final = 1000.0 - des_scaled
-    if des_final < 0:
-        des_final = 0.0
-    if des_final > 1000:
-        des_final = 1000.0
-    return des_final
-
+# ----------------- Aggregation & contagens por campo -----------------
 def make_acc():
     return {"count": 0, "sum_des": 0.0}
 
@@ -207,13 +205,19 @@ def finalize(acc):
     return {"count": acc["count"], "avg_des": acc["sum_des"] / acc["count"]}
 
 def process_reports_from_iterable(iter_reports):
+    # DES aggregates (como antes)
     overall = make_acc()
     by_age = defaultdict(make_acc)
     by_gender = defaultdict(make_acc)
-
     monthly_general = defaultdict(make_acc)
     monthly_by_age = defaultdict(lambda: defaultdict(make_acc))
     monthly_by_gender = defaultdict(lambda: defaultdict(make_acc))
+
+    # Contagens por campo (novas)
+    field_counts_overall = {c: 0 for c in CAMPO_LIST}
+    monthly_field_counts = defaultdict(lambda: {c: 0 for c in CAMPO_LIST})
+    by_age_field_counts = defaultdict(lambda: {c: 0 for c in CAMPO_LIST})
+    by_gender_field_counts = defaultdict(lambda: {c: 0 for c in CAMPO_LIST})
 
     for doc in iter_reports:
         report_raw = doc.get("report") if isinstance(doc, dict) and "report" in doc else doc
@@ -232,34 +236,37 @@ def process_reports_from_iterable(iter_reports):
 
         des_score = compute_des_from_informacoes(iniciais)
 
+        # DES aggregates
         combine(overall, des_score)
-
-        idade_val = None
-        genero_val = None
-        if isinstance(adicionais, dict):
-
-            idade_val = adicionais.get("Idade") or adicionais.get("IdadeDeclaradaOuInferidaDoAutor") or adicionais.get("idade")
-            genero_val = adicionais.get("Genero") or adicionais.get("GeneroDeclarado") or adicionais.get("GeneroAutoDeclaradoOuInferidoDoAutor") or adicionais.get("genero")
-
+        idade_val = adicionais.get("Idade") or adicionais.get("IdadeDeclaradaOuInferidaDoAutor") or adicionais.get("idade")
+        genero_val = adicionais.get("Genero") or adicionais.get("GeneroDeclarado") or adicionais.get("GeneroAutoDeclaradoOuInferidoDoAutor") or adicionais.get("genero")
         age_label = age_range_label(idade_val)
         gen_label = normalize_gender(genero_val)
 
         combine(by_age[age_label], des_score)
         combine(by_gender[gen_label], des_score)
 
-        dt = None
-        if isinstance(adicionais, dict):
-            dt = adicionais.get("DataUltimoTweet") or adicionais.get("data_ultimo_tweet") or adicionais.get("DataUltimoPost")
+        dt = adicionais.get("DataUltimoTweet") or adicionais.get("data_ultimo_tweet") or adicionais.get("DataUltimoPost")
         month = parse_iso_month(dt)
         combine(monthly_general[month], des_score)
         combine(monthly_by_age[month][age_label], des_score)
         combine(monthly_by_gender[month][gen_label], des_score)
 
+        # Field counts: para cada campo verifica se 'is_exposed' -> incrementa nas estruturas apropriadas
+        for campo in CAMPO_LIST:
+            present = is_exposed(iniciais.get(campo, None))
+            if present:
+                field_counts_overall[campo] += 1
+                monthly_field_counts[month][campo] += 1
+                by_age_field_counts[age_label][campo] += 1
+                by_gender_field_counts[gen_label][campo] += 1
+
+    # Adiciona bucket "Todos" para by_age (como antes)
     agg_overall_final = finalize(overall)
     todos_acc = {"count": agg_overall_final["count"], "sum_des": (agg_overall_final["avg_des"] * agg_overall_final["count"]) if agg_overall_final["avg_des"] is not None else 0.0}
-
     by_age["Todos"] = todos_acc
 
+    # Finaliza
     result = {
         "overall": agg_overall_final,
         "by_age": {k: finalize(v) for k, v in by_age.items()},
@@ -273,9 +280,15 @@ def process_reports_from_iterable(iter_reports):
             month: {g: finalize(acc) for g, acc in gen_map.items()}
             for month, gen_map in monthly_by_gender.items()
         },
+        # novos: contagens por campo
+        "field_counts_overall": field_counts_overall,
+        "monthly_field_counts": {m: v for m, v in monthly_field_counts.items()},
+        "by_age_field_counts": {age: v for age, v in by_age_field_counts.items()},
+        "by_gender_field_counts": {g: v for g, v in by_gender_field_counts.items()},
     }
     return result
 
+# ----------------- Entrypoint (igual ao anterior) -----------------
 def main():
     use_db = all([USER, PASS, HOST, PORT, AUTH_DB, DB_NAME]) and MongoClient is not None
     docs_iter = None
@@ -318,13 +331,13 @@ def main():
 
     if connected_to_db and client is not None:
         try:
-            summary_coll = db.get_collection("aggregates")
+            summary_coll = db.get_collection("reports_aggregates")
             doc = {
                 "generated_at": datetime.utcnow().isoformat() + "Z",
                 "aggregates": agg
             }
             summary_coll.insert_one(doc)
-            print("[INFO] Agregados gravados em 'aggregates'.")
+            print("[INFO] Agregados gravados em 'reports_aggregates'.")
         except Exception as e:
             print(f"[WARN] Não foi possível gravar agregados: {e}")
 
