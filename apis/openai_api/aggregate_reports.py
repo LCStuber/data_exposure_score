@@ -2,78 +2,25 @@ import os
 import json
 from datetime import datetime
 from collections import defaultdict
-from statistics import mean, median
-from pymongo import MongoClient
+from typing import Any, Dict, Optional
+
+
+try:
+    from pymongo import MongoClient, errors as pymongo_errors
+except Exception:
+    MongoClient = None
+    pymongo_errors = None
+
 
 USER = os.getenv("MONGO_USER")
 PASS = os.getenv("MONGO_PASS")
-HOST = os.getenv("MONGO_HOST", "localhost")
-PORT = os.getenv("MONGO_PORT", "27017")
-AUTH_DB = os.getenv("MONGO_AUTH_DB", "admin")
-DB_NAME = os.getenv("MONGO_DB", "test")
-COL_REPORTS = os.getenv("MONGO_COLLECTION_REPORTS", "reports")
-COL_AGG = os.getenv("MONGO_COLLECTION_AGGREGATES", "reports_aggregates")
+HOST = os.getenv("MONGO_HOST")
+PORT = os.getenv("MONGO_PORT")
+AUTH_DB = os.getenv("MONGO_AUTH_DB")
+DB_NAME = os.getenv("MONGO_DB")
+COL_REPORT = os.getenv("MONGO_COLLECTION_REPORTS", "reports")
 
-if not all([USER, PASS, HOST, PORT, AUTH_DB, DB_NAME]):
-    raise RuntimeError("Please set MONGO env vars (MONGO_USER, MONGO_PASS, MONGO_HOST, MONGO_PORT, MONGO_AUTH_DB, MONGO_DB)")
-
-uri = f"mongodb://{HOST}:{PORT}/?authSource={AUTH_DB}"
-client = MongoClient(uri, username=USER, password=PASS)
-db = client[DB_NAME]
-reports_coll = db[COL_REPORTS]
-agg_coll = db[COL_AGG]
-
-categories = {
-    "Informação Financeira": {"Impacto": 10, "Explorabilidade": 8},
-    "Documentos Pessoais": {"Impacto": 10, "Explorabilidade": 7},
-    "Localização em Tempo Real": {"Impacto": 8, "Explorabilidade": 9},
-    "Contato Pessoal": {"Impacto": 8, "Explorabilidade": 10},
-    "Rotina/Hábitos": {"Impacto": 6, "Explorabilidade": 6},
-    "Posicionamento e Características Pessoais": {"Impacto": 4, "Explorabilidade": 5},
-}
-
-# Map each report field to a category (best-effort mapping following your notebook fields list)
-field_to_category = {
-    "NomeDeclaradoOuSugeridoPeloAutor": "Posicionamento e Características Pessoais",
-    "IdadeDeclaradaOuInferidaDoAutor": "Posicionamento e Características Pessoais",
-    "GeneroAutoDeclaradoOuInferidoDoAutor": "Posicionamento e Características Pessoais",
-    "OrientacaoSexualDeclaradaOuSugeridaPeloAutor": "Posicionamento e Características Pessoais",
-    "StatusDeRelacionamentoDeclaradoOuSugeridoPeloAutor": "Posicionamento e Características Pessoais",
-    "ProfissaoOcupacaoDeclaradaPeloAutor": "Rotina/Hábitos",
-    "NivelEducacionalDeclaradoOuInferidoDoAutor": "Rotina/Hábitos",
-    "LocalizacaoPrincipalDeclaradaOuInferidaDoAutor": "Localização em Tempo Real",
-    "CidadesComRelevanciaPessoalParaOAutor": "Localização em Tempo Real",
-    "CrencaReligiosaDeclaradaOuSugeridaPeloAutor": "Posicionamento e Características Pessoais",
-    "OpinioesPoliticasExpressasPeloAutor": "Posicionamento e Características Pessoais",
-    "ExposicaoDeRelacionamentosPessoaisPeloAutor": "Posicionamento e Características Pessoais",
-    "MencaoDoAutorAPosseDeCPF": "Documentos Pessoais",
-    "MencaoDoAutorAPosseDeRG": "Documentos Pessoais",
-    "MencaoDoAutorAPosseDePassaporte": "Documentos Pessoais",
-    "MencaoDoAutorAPosseDeTituloEleitor": "Documentos Pessoais",
-    "EtniaOuRacaAutoDeclaradaPeloAutor": "Posicionamento e Características Pessoais",
-    "MencaoDoAutorAEnderecoResidencial": "Contato Pessoal",
-    "MencaoDoAutorAContatoPessoal_TelefoneEmail": "Contato Pessoal",
-    "MencaoDoAutorADadosBancarios": "Informação Financeira",
-    "MencaoDoAutorACartaoDeEmbarque": "Documentos Pessoais",
-    "IndicadoresDeRendaPropriaMencionadosPeloAutor": "Informação Financeira",
-    "MencoesAPatrimonioPessoalDoAutor": "Informação Financeira",
-    "LocalDeTrabalhoOuEstudoDeclaradoPeloAutor": "Rotina/Hábitos",
-    "MencaoDoAutorARecebimentoDeBeneficioSocial": "Informação Financeira",
-    "MencoesAoProprioHistoricoFinanceiroPeloAutor": "Informação Financeira",
-    "MencoesDoAutorAProprioHistoricoCriminal": "Documentos Pessoais",
-    "MencaoDoAutorAPosseDeChavePix": "Informação Financeira",
-}
-
-field_weight = {}
-for fld, cat_name in field_to_category.items():
-    cat = categories.get(cat_name)
-    if not cat:
-        raise RuntimeError(f"Missing category mapping for {cat_name}")
-    field_weight[fld] = cat["Impacto"] * cat["Explorabilidade"]
-
-DES_MAX = sum(field_weight.values())
-
-age_ranges = [
+ageRanges = [
   { "label": "Todos", "min": 0, "max": 999 },
   { "label": "< 18", "min": 0, "max": 17 },
   { "label": "18-24", "min": 18, "max": 24 },
@@ -84,160 +31,232 @@ age_ranges = [
   { "label": "65+", "min": 65, "max": 999 },
 ]
 
-def normalize_field_value(v):
-    """Return True if the field indicates 'VERDADEIRO' (handles strings and lists)."""
-    if v is None:
-        return False
-    if isinstance(v, list):
-        return any((str(x).strip().upper() == "VERDADEIRO") for x in v)
-    if isinstance(v, str):
-        return v.strip().upper() == "VERDADEIRO"
-    if isinstance(v, bool):
-        return v
-    return bool(v)
+CAMPO_LIST = [
+    "NomeDeclaradoOuSugeridoPeloAutor",
+    "IdadeDeclaradaOuInferidaDoAutor",
+    "GeneroAutoDeclaradoOuInferidoDoAutor",
+    "OrientacaoSexualDeclaradaOuSugeridaPeloAutor",
+    "StatusDeRelacionamentoDeclaradoOuSugeridoDoAutor",
+    "ProfissaoOcupacaoDeclaradaPeloAutor",
+    "NivelEducacionalDeclaradoOuInferidoDoAutor",
+    "LocalizacaoPrincipalDeclaradaOuInferidaDoAutor",
+    "CidadesComRelevanciaPessoalParaOAutor",
+    "CrencaReligiosaDeclaradaOuSugeridaPeloAutor",
+    "OpinioesPoliticasExpressasPeloAutor",
+    "ExposicaoDeRelacionamentosPessoaisPeloAutor",
+    "MencaoDoAutorAPosseDeCPF",
+    "MencaoDoAutorAPosseDeRG",
+    "MencaoDoAutorAPosseDePassaporte",
+    "MencaoDoAutorAPosseDeTituloEleitor",
+    "EtniaOuRacaAutoDeclaradaPeloAutor",
+    "MencaoDoAutorAEnderecoResidencial",
+    "MencaoDoAutorAContatoPessoal_TelefoneEmail",
+    "MencaoDoAutorADadosBancarios",
+    "MencaoDoAutorACartaoDeEmbarque",
+    "IndicadoresDeRendaPropriaMencionadosPeloAutor",
+    "MencoesAPatrimonioPessoalDoAutor",
+    "LocalDeTrabalhoOuEstudoDeclaradoPeloAutor",
+    "MencaoDoAutorARecebimentoDeBeneficioSocial",
+    "MencoesAoProprioHistoricoFinanceiroDoAutor",
+    "MencoesDoAutorAProprioHistoricoCriminal",
+    "MencaoDoAutorAPosseDeChavePix"
+]
 
-def compute_des_for_report(report_obj):
-    """
-    Expect report_obj to be the parsed JSON saved in your reports collection under 'report' field:
-    - report_obj["InformacoesIniciais"] : dict with many keys with "VERDADEIRO"/"FALSO" or lists.
-    - report_obj["InformacoesAdicionais"]["Idade"] (optional)
-    - report_obj["InformacoesAdicionais"]["Genero"] (optional)
-    - report_obj["InformacoesAdicionais"]["DataUltimoTweet"] (optional ISO)
-    """
-    info_init = report_obj.get("InformacoesIniciais", {}) or {}
-    des = 0.0
-    for fld, weight in field_weight.items():
-        v = info_init.get(fld)
-        if normalize_field_value(v):
-            des += weight
+TOTAL_FIELDS = len(CAMPO_LIST)
 
-    des_scaled = (des / DES_MAX) * 1000 if DES_MAX > 0 else 0.0
-    des_final = 1000.0 - des_scaled
-    return {
-        "des_raw": des,
-        "des_scaled": des_scaled,
-        "des_final": des_final
-    }
 
-def parse_month_from_iso(isotext):
-    if not isotext:
-        return None
+def parse_iso_month(dt_str: Optional[str]) -> str:
+    """Return 'YYYY-MM' for an ISO datetime string; 'unknown' for None/invalid."""
+    if not dt_str:
+        return "unknown"
     try:
-        if isotext.endswith("Z"):
-            isotext = isotext.replace("Z", "+00:00")
-        dt = datetime.fromisoformat(isotext)
+        s = dt_str.strip()
+        if s.endswith("Z"):
+            s = s.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
         return dt.strftime("%Y-%m")
     except Exception:
-        try:
-            dt = datetime.strptime(isotext[:10], "%Y-%m-%d")
-            return dt.strftime("%Y-%m")
-        except Exception:
-            return None
+        return "unknown"
 
-def choose_age_range_label(age):
+def normalize_gender(g: Optional[str]) -> str:
+    if not g:
+        return "Outros"
+    g = g.strip().lower()
+    if g in {"masculino", "m", "male", "homem"}:
+        return "Masculino"
+    if g in {"feminino", "f", "female", "mulher"}:
+        return "Feminino"
+    return "Outros"
+
+def age_range_label(age: Optional[int]) -> str:
     try:
         if age is None:
             return "Outros"
         age = int(age)
     except Exception:
         return "Outros"
-    for r in age_ranges:
-        if r["min"] <= age <= r["max"] and r["label"] != "Todos":
-            return r["label"]
-    return "Todos"
-
-def normalize_gender(g):
-    if not g:
-        return "Outros"
-    s = str(g).strip().lower()
-    if s in ("masculino", "m", "male", "homem"):
-        return "Masculino"
-    if s in ("feminino", "f", "female", "mulher"):
-        return "Feminino"
+    for rng in ageRanges:
+        if rng["min"] <= age <= rng["max"]:
+            return rng["label"]
     return "Outros"
 
-overall_docs = []
-by_age = defaultdict(list)    
-by_gender = defaultdict(list)   
-monthly = defaultdict(lambda: {
-    "docs": [],
-    "by_age": defaultdict(list),
-    "by_gender": defaultdict(list)
-})
+def compute_des_from_informacoes(iniciais: Dict[str, Any]) -> float:
+    """
+    Simple DES calculation:
+      - count how many CAMPO_LIST fields are marked as 'VERDADEIRO'
+      - DES = (count / TOTAL_FIELDS) * 100  (score 0..100)
+    This follows the structure in your sample test.json (InformacoesIniciais containing VERDADEIRO/FALSO).
+    If you want the precise formula from des.ipynb, paste that function and I will integrate it exactly.
+    """
+    if not isinstance(iniciais, dict):
+        return 0.0
+    true_count = 0
+    for key in CAMPO_LIST:
+        val = iniciais.get(key)
+        if val is None:
+            continue
+        if isinstance(val, str):
+            if val.strip().upper() == "VERDADEIRO":
+                true_count += 1
+        elif isinstance(val, (list, tuple)):
+            if any((isinstance(x, str) and x.strip().upper() == "VERDADEIRO") or x is True for x in val):
+                true_count += 1
+        elif isinstance(val, bool):
+            if val:
+                true_count += 1
+        elif isinstance(val, (int, float)) and val != 0:
+            true_count += 1
+    return (true_count / TOTAL_FIELDS) * 100.0 if TOTAL_FIELDS > 0 else 0.0
 
-cursor = reports_coll.find({}, projection={"report": 1})
-total = reports_coll.count_documents({})
-print(f"[INFO] Found {total} report docs in collection '{COL_REPORTS}'")
 
-for doc in cursor:
-    report_obj = doc.get("report")
-    if report_obj is None:
-        continue
-    des_stats = compute_des_for_report(report_obj)
-    des_final = des_stats["des_final"]
+def make_acc():
+    return {"count": 0, "sum_des": 0.0}
 
-    info_add = report_obj.get("InformacoesAdicionais", {}) or {}
-    idade = info_add.get("Idade")
-    genero = info_add.get("Genero")
-    data_ultimo = info_add.get("DataUltimoTweet")
+def combine(acc, des_val):
+    acc["count"] += 1
+    acc["sum_des"] += des_val
 
-    age_label = choose_age_range_label(idade)
-    gender_label = normalize_gender(genero)
-    month_label = parse_month_from_iso(data_ultimo) or "sem_data"
+def finalize(acc):
+    if acc["count"] == 0:
+        return {"count": 0, "avg_des": None}
+    return {"count": acc["count"], "avg_des": acc["sum_des"] / acc["count"]}
 
-    overall_docs.append(des_final)
-    by_age[age_label].append(des_final)
-    by_gender[gender_label].append(des_final)
 
-    monthly_entry = monthly[month_label]
-    monthly_entry["docs"].append(des_final)
-    monthly_entry["by_age"][age_label].append(des_final)
-    monthly_entry["by_gender"][gender_label].append(des_final)
+def process_reports_from_iterable(iter_reports):
+    overall = make_acc()
+    by_age = defaultdict(make_acc) 
+    by_gender = defaultdict(make_acc)
 
-def summary_stats(values):
-    if not values:
-        return {"count": 0, "mean": None, "median": None, "min": None, "max": None}
-    return {
-        "count": len(values),
-        "mean": float(mean(values)),
-        "median": float(median(values)),
-        "min": float(min(values)),
-        "max": float(max(values))
+    monthly_general = defaultdict(make_acc)
+    monthly_by_age = defaultdict(lambda: defaultdict(make_acc))   
+    monthly_by_gender = defaultdict(lambda: defaultdict(make_acc))
+
+    for doc in iter_reports:
+        report_raw = doc.get("report") if isinstance(doc, dict) and "report" in doc else doc
+
+        if isinstance(report_raw, str):
+            try:
+                report = json.loads(report_raw)
+            except Exception:
+                continue
+        else:
+            report = report_raw
+
+        if not isinstance(report, dict):
+            continue
+
+        iniciais = report.get("InformacoesIniciais", {})
+        adicionais = report.get("InformacoesAdicionais", {})
+
+        des_score = compute_des_from_informacoes(iniciais)
+
+        combine(overall, des_score)
+
+        idade = adicionais.get("Idade") if isinstance(adicionais, dict) else None
+        genero = adicionais.get("Genero") if isinstance(adicionais, dict) else None
+
+        age_label = age_range_label(idade)
+        gen_label = normalize_gender(genero)
+
+        combine(by_age[age_label], des_score)
+        combine(by_gender[gen_label], des_score)
+
+        dt = adicionais.get("DataUltimoTweet") if isinstance(adicionais, dict) else None
+        month = parse_iso_month(dt)
+        combine(monthly_general[month], des_score)
+        combine(monthly_by_age[month][age_label], des_score)
+        combine(monthly_by_gender[month][gen_label], des_score)
+
+    result = {
+        "overall": finalize(overall),
+        "by_age": {k: finalize(v) for k, v in by_age.items()},
+        "by_gender": {k: finalize(v) for k, v in by_gender.items()},
+        "monthly_general": {k: finalize(v) for k, v in monthly_general.items()},
+        "monthly_by_age": {
+            month: {age: finalize(acc) for age, acc in age_map.items()}
+            for month, age_map in monthly_by_age.items()
+        },
+        "monthly_by_gender": {
+            month: {g: finalize(acc) for g, acc in gen_map.items()}
+            for month, gen_map in monthly_by_gender.items()
+        },
     }
+    return result
 
-overall_summary = {
-    "total_docs": len(overall_docs),
-    "des": summary_stats(overall_docs),
-    "by_age": {k: summary_stats(v) for k, v in by_age.items()},
-    "by_gender": {k: summary_stats(v) for k, v in by_gender.items()},
-    "DES_MAX_used": DES_MAX
-}
 
-monthly_summary = {}
-for m, entry in sorted(monthly.items()):
-    monthly_summary[m] = {
-        "total_docs": len(entry["docs"]),
-        "des": summary_stats(entry["docs"]),
-        "by_age": {k: summary_stats(v) for k, v in entry["by_age"].items()},
-        "by_gender": {k: summary_stats(v) for k, v in entry["by_gender"].items()},
-    }
+def main():
+    use_db = all([USER, PASS, HOST, PORT, AUTH_DB, DB_NAME]) and MongoClient is not None
+    docs_iter = None
+    client = None
+    connected_to_db = False
 
-final_doc = {
-    "_id": f"agg_{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}",
-    "generated_at": datetime.utcnow(),
-    "overall": overall_summary,
-    "monthly": monthly_summary,
-    "meta": {
-        "reports_collection": COL_REPORTS,
-        "computed_from_docs": total
-    }
-}
+    if use_db:
+        try:
+            tls_ca = os.getenv("MONGO_TLS_CA_FILE", "rds-combined-ca-bundle.pem")
+            uri = (
+                f"mongodb://{HOST}:{PORT}/?tls=true&tlsCAFile={tls_ca}"
+                f"&replicaSet=rs0&readPreference=secondaryPreferred&retryWrites=false&authSource={AUTH_DB}"
+            )
+            client = MongoClient(uri, username=USER, password=PASS, serverSelectionTimeoutMS=5000)
+            client.server_info()
+            db = client[DB_NAME]
+            coll = db[COL_REPORT]
+            docs_iter = coll.find({}, projection={"report": 1})
+            connected_to_db = True
+            print("[INFO] Connected to MongoDB. Reading reports collection.")
+        except Exception as e:
+            print(f"[WARN] Could not connect to MongoDB: {e}. Falling back to local file (test.json).")
 
-agg_coll.replace_one({"_id": final_doc["_id"]}, final_doc, upsert=True)
-print("[INFO] Aggregation written to collection:", COL_AGG)
+    if not connected_to_db:
+        fallback_path = "/mnt/data/test.json"
+        if not os.path.exists(fallback_path):
+            raise RuntimeError(f"DB unavailable and fallback file not found at {fallback_path}.")
+        with open(fallback_path, "r", encoding="utf-8") as fh:
+            sample = json.load(fh)
+            if isinstance(sample, dict) and "InformacoesIniciais" in sample:
+                docs_iter = [{"report": sample}]
+            elif isinstance(sample, list):
+                docs_iter = [{"report": x} if not isinstance(x, dict) or "report" not in x else x for x in sample]
+            else:
+                docs_iter = [{"report": sample}]
+        print(f"[INFO] Using fallback file: {fallback_path} (example/test data).")
 
-print(json.dumps({
-    "generated_at": final_doc["generated_at"].isoformat() + "Z",
-    "overall": overall_summary,
-    "sample_months_count": len(monthly_summary)
-}, default=str, indent=2))
+    agg = process_reports_from_iterable(docs_iter)
+
+    print(json.dumps(agg, ensure_ascii=False, indent=2))
+
+    if connected_to_db and client is not None:
+        try:
+            summary_coll = db.get_collection("reports_aggregates")
+            doc = {
+                "generated_at": datetime.utcnow().isoformat() + "Z",
+                "aggregates": agg
+            }
+            summary_coll.insert_one(doc)
+            print("[INFO] Aggregates stored to `reports_aggregates` collection.")
+        except Exception as e:
+            print(f"[WARN] Could not write aggregates to DB: {e}")
+
+
+if __name__ == "__main__":
+    main()
