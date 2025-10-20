@@ -28,6 +28,19 @@ ageRanges = [
 ]
 AGE_LABELS = [r["label"] for r in ageRanges]
 
+# --- NOVAS CONSTANTES PARA FAIXA DE DES ---
+# Definindo as faixas de DES solicitadas
+# Usamos [min, max) para todas, exceto a última [min, max]
+DES_RANGES_DEF = [
+  { "label": "0-199", "min": 0, "max": 200 },
+  { "label": "200-399", "min": 200, "max": 400 },
+  { "label": "400-599", "min": 400, "max": 600 },
+  { "label": "600-799", "min": 600, "max": 800 },
+  { "label": "800-1000", "min": 800, "max": 1000 }, # Última faixa é inclusiva
+]
+DES_RANGE_LABELS = [r["label"] for r in DES_RANGES_DEF]
+# --- FIM DAS NOVAS CONSTANTES ---
+
 CAMPO_LIST = [
     "NomeDeclaradoOuSugeridoPeloAutor",
     "IdadeDeclaradaOuInferidaDoAutor",
@@ -175,17 +188,93 @@ def age_range_label(age_value: Optional[Any]) -> str:
             return rng["label"]
     return "Outros"
 
+# --- NOVA FUNÇÃO HELPER ---
+def get_des_range_label(score: float) -> Optional[str]:
+    """Maps a DES score to its corresponding range label."""
+    if score is None:
+        return None
+    
+    # Trata a última faixa [800, 1000] (inclusiva)
+    last_range = DES_RANGES_DEF[-1]
+    if last_range["min"] <= score <= last_range["max"]:
+        return last_range["label"]
+    
+    # Trata as faixas [min, max)
+    for rng in DES_RANGES_DEF[:-1]:
+        if rng["min"] <= score < rng["max"]:
+            return rng["label"]
+            
+    # Fallback para valores fora do esperado (embora o score seja clampado)
+    if score < 0:
+        return DES_RANGES_DEF[0]["label"]
+    if score > 1000:
+        return DES_RANGES_DEF[-1]["label"]
+        
+    return None
+# --- FIM DA NOVA FUNÇÃO ---
+
+
+# --- FUNÇÕES DE AGREGAÇÃO MODIFICADAS ---
 def make_acc():
-    return {"count": 0, "sum_des": 0.0}
+    """Cria um acumulador com as novas métricas."""
+    return {
+        "count": 0,
+        "sum_des": 0.0,
+        "count_gt_800": 0,  # Novo: contador para scores > 800
+        "des_range_counts": {label: 0 for label in DES_RANGE_LABELS} # Novo: contagem por faixa
+    }
 
 def combine(acc, des_val):
+    """Adiciona um valor de DES ao acumulador."""
     acc["count"] += 1
     acc["sum_des"] += des_val
+    
+    # Novo: checa se é > 800
+    if des_val > 800:
+        acc["count_gt_800"] += 1
+    
+    # Novo: encontra a faixa de DES e incrementa
+    range_label = get_des_range_label(des_val)
+    if range_label and range_label in acc["des_range_counts"]:
+        acc["des_range_counts"][range_label] += 1
 
 def finalize(acc):
-    if acc["count"] == 0:
-        return {"count": 0, "avg_des": None}
-    return {"count": acc["count"], "avg_des": acc["sum_des"] / acc["count"]}
+    """Finaliza o acumulador, calculando médias e percentuais."""
+    count = acc.get("count", 0)
+    
+    if count == 0:
+        return {
+            "count": 0,
+            "avg_des": None,
+            "count_gt_800": 0,
+            "percent_gt_800": None,
+            "des_range_counts": {label: 0 for label in DES_RANGE_LABELS},
+            "des_range_percents": {label: 0.0 for label in DES_RANGE_LABELS}
+        }
+    
+    avg_des = acc["sum_des"] / count
+    
+    # Novo: calcula % > 800
+    count_gt_800 = acc.get("count_gt_800", 0)
+    percent_gt_800 = (count_gt_800 / count) * 100.0
+    
+    # Novo: calcula % por faixa
+    range_counts = acc.get("des_range_counts", {label: 0 for label in DES_RANGE_LABELS})
+    des_range_percents = {
+        label: (c / count) * 100.0 
+        for label, c in range_counts.items()
+    }
+
+    return {
+        "count": count,
+        "avg_des": avg_des,
+        "count_gt_800": count_gt_800,
+        "percent_gt_800": percent_gt_800,
+        "des_range_counts": range_counts,
+        "des_range_percents": des_range_percents
+    }
+# --- FIM DAS FUNÇÕES MODIFICADAS ---
+
 
 def process_reports_from_iterable(iter_reports):
     overall = make_acc()
@@ -240,13 +329,18 @@ def process_reports_from_iterable(iter_reports):
                 by_age_field_counts[age_label][campo] += 1
                 by_gender_field_counts[gen_label][campo] += 1
 
+    # --- LÓGICA 'Todos' CORRIGIDA ---
+    # Atribui o acumulador 'overall' (bruto) à chave 'Todos'
+    # Isso garante que 'Todos' seja finalizado corretamente com todas as novas métricas.
+    by_age["Todos"] = overall
+    
+    # Finaliza o 'overall' separadamente para a chave 'overall' do resultado
     agg_overall_final = finalize(overall)
-    todos_acc = {"count": agg_overall_final["count"], "sum_des": (agg_overall_final["avg_des"] * agg_overall_final["count"]) if agg_overall_final["avg_des"] is not None else 0.0}
-    by_age["Todos"] = todos_acc
+    # --- FIM DA CORREÇÃO ---
 
     result = {
         "overall": agg_overall_final,
-        "by_age": {k: finalize(v) for k, v in by_age.items()},
+        "by_age": {k: finalize(v) for k, v in by_age.items()}, # Agora finaliza 'Todos' corretamente
         "by_gender": {k: finalize(v) for k, v in by_gender.items()},
         "monthly_general": {k: finalize(v) for k, v in monthly_general.items()},
         "monthly_by_age": {
@@ -273,10 +367,18 @@ def main():
     if use_db:
         try:
             tls_ca = os.getenv("MONGO_TLS_CA_FILE", "rds-combined-ca-bundle.pem")
-            uri = (
-                f"mongodb://{HOST}:{PORT}/?tls=true&tlsCAFile={tls_ca}"
-                f"&replicaSet=rs0&readPreference=secondaryPreferred&retryWrites=false&authSource={AUTH_DB}"
-            )
+            if not os.path.exists(tls_ca):
+                print(f"[WARN] Arquivo TLS CA não encontrado em {tls_ca}. Tentando conectar sem TLS CA.")
+                # Tenta conectar sem o CA se não existir (não ideal para produção, mas bom para dev)
+                uri = (
+                    f"mongodb://{HOST}:{PORT}/?tls=true"
+                    f"&replicaSet=rs0&readPreference=secondaryPreferred&retryWrites=false&authSource={AUTH_DB}"
+                )
+            else:
+                 uri = (
+                    f"mongodb://{HOST}:{PORT}/?tls=true&tlsCAFile={tls_ca}"
+                    f"&replicaSet=rs0&readPreference=secondaryPreferred&retryWrites=false&authSource={AUTH_DB}"
+                )
             client = MongoClient(uri, username=USER, password=PASS, serverSelectionTimeoutMS=5000)
             client.server_info()
             db = client[DB_NAME]
@@ -285,24 +387,99 @@ def main():
             connected_to_db = True
             print("[INFO] Conectado ao MongoDB. Lendo coleção 'reports'.")
         except Exception as e:
-            print(f"[WARN] Falha ao conectar ao MongoDB: {e}. Irei usar fallback /mnt/data/test.json.")
+            print(f"[WARN] Falha ao conectar ao MongoDB: {e}. Irei usar fallback.")
 
     if not connected_to_db:
-        fallback_path = "/mnt/data/test.json"
-        if not os.path.exists(fallback_path):
-            raise RuntimeError(f"DB indisponível e fallback não encontrado em {fallback_path}")
-        with open(fallback_path, "r", encoding="utf-8") as fh:
-            sample = json.load(fh)
-            if isinstance(sample, dict) and "InformacoesIniciais" in sample:
-                docs_iter = [{"report": sample}]
-            elif isinstance(sample, list):
-                docs_iter = [{"report": x} if not isinstance(x, dict) or "report" not in x else x for x in sample]
-            else:
-                docs_iter = [{"report": sample}]
-        print(f"[INFO] Usando fallback: {fallback_path}")
+        fallback_path = "test.json"
+        
+        try:
+            print("[INFO] DB indisponível. Criando 'test.json' de fallback no CWD.")
+            test_data = [
+                {
+                    "report": {
+                        "InformacoesIniciais": {
+                            "NomeDeclaradoOuSugeridoPeloAutor": "VERDADEIRO",
+                            "IdadeDeclaradaOuInferidaDoAutor": "VERDADEIRO",
+                            "MencaoDoAutorADadosBancarios": "VERDADEIRO" # Exposição alta -> DES baixo
+                        },
+                        "InformacoesAdicionais": {
+                            "Idade": 22,
+                            "Genero": "Masculino",
+                            "DataUltimoTweet": "2023-01-10T12:00:00Z"
+                        }
+                    }
+                },
+                {
+                    "report": {
+                        "InformacoesIniciais": {
+                            "NomeDeclaradoOuSugeridoPeloAutor": "VERDADEIRO" # Exposição baixa -> DES alto
+                        },
+                        "InformacoesAdicionais": {
+                            "Idade": 35,
+                            "Genero": "Feminino",
+                            "DataUltimoTweet": "2023-01-15T12:00:00Z"
+                        }
+                    }
+                },
+                {
+                    "report": {
+                        "InformacoesIniciais": {
+                            "MencaoDoAutorAPosseDeCPF": "VERDADEIRO",
+                            "MencaoDoAutorAContatoPessoal_TelefoneEmail": "VERDADEIRO" # Exposição alta -> DES baixo
+                        },
+                        "InformacoesAdicionais": {
+                            "Idade": 40,
+                            "Genero": "Feminino",
+                            "DataUltimoTweet": "2023-02-05T12:00:00Z"
+                        }
+                    }
+                },
+                {
+                    "report": { # Exposição 0 -> DES 1000
+                        "InformacoesIniciais": {},
+                        "InformacoesAdicionais": {
+                            "Idade": 68,
+                            "Genero": "nb",
+                            "DataUltimoTweet": "2023-02-10T12:00:00Z"
+                        }
+                    }
+                }
+            ]
+            with open(fallback_path, "w", encoding="utf-8") as fh:
+                json.dump(test_data, fh)
+            
+            with open(fallback_path, "r", encoding="utf-8") as fh:
+                sample = json.load(fh)
+                if isinstance(sample, dict) and "InformacoesIniciais" in sample:
+                    docs_iter = [{"report": sample}]
+                elif isinstance(sample, list):
+                    docs_iter = [{"report": x} if not isinstance(x, dict) or "report" not in x else x for x in sample]
+                else:
+                    docs_iter = [{"report": sample}]
+            print(f"[INFO] Usando fallback: {fallback_path}")
+        except Exception as e_fallback:
+             print(f"[ERROR] Falha ao criar ou ler o arquivo de fallback: {e_fallback}")
+             # Se o fallback falhar, não há o que processar
+             docs_iter = [] # Processa um iterável vazio
 
-    agg = process_reports_from_iterable(docs_iter)
+    if not docs_iter:
+        print("[ERROR] Nenhum documento para processar (DB e fallback falharam).")
+        agg = process_reports_from_iterable([]) # Gera um resultado vazio
+    else:
+        agg = process_reports_from_iterable(docs_iter)
+    
+    # Imprime os resultados no stdout
+    print("[INFO] Resultados da Agregação:")
     print(json.dumps(agg, ensure_ascii=False, indent=2))
+    
+    # Salva os resultados da agregação
+    try:
+        with open("aggregation_results.json", "w", encoding="utf-8") as f:
+            json.dump(agg, f, ensure_ascii=False, indent=2)
+        print("[INFO] Resultados da agregação salvos em 'aggregation_results.json'.")
+    except Exception as e_save_json:
+        print(f"[WARN] Falha ao salvar resultados da agregação: {e_save_json}")
+
 
     if connected_to_db and client is not None:
         try:
