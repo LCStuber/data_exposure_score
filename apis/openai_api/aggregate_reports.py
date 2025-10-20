@@ -33,7 +33,7 @@ DES_RANGES_DEF = [
   { "label": "200-399", "min": 200, "max": 400 },
   { "label": "400-599", "min": 400, "max": 600 },
   { "label": "600-799", "min": 600, "max": 800 },
-  { "label": "800-1000", "min": 800, "max": 1000 }, 
+  { "label": "800-1000", "min": 800, "max": 1000 }, # Última faixa é inclusiva
 ]
 DES_RANGE_LABELS = [r["label"] for r in DES_RANGES_DEF]
 
@@ -204,14 +204,13 @@ def get_des_range_label(score: float) -> Optional[str]:
         
     return None
 
-
 def make_acc():
     """Cria um acumulador com as novas métricas."""
     return {
         "count": 0,
         "sum_des": 0.0,
-        "count_gt_800": 0, 
-        "des_range_counts": {label: 0 for label in DES_RANGE_LABELS} 
+        "count_gt_800": 0,
+        "des_range_counts": {label: 0 for label in DES_RANGE_LABELS}
     }
 
 def combine(acc, des_val):
@@ -241,7 +240,6 @@ def finalize(acc):
         }
     
     avg_des = acc["sum_des"] / count
-    
     count_gt_800 = acc.get("count_gt_800", 0)
     percent_gt_800 = (count_gt_800 / count) * 100.0
     
@@ -260,15 +258,16 @@ def finalize(acc):
         "des_range_percents": des_range_percents
     }
 
-
 def process_reports_from_iterable(iter_reports):
     overall = make_acc()
     by_age = defaultdict(make_acc)
     by_gender = defaultdict(make_acc)
+    by_age_and_gender = defaultdict(lambda: defaultdict(make_acc))
+    
     monthly_general = defaultdict(make_acc)
     monthly_by_age = defaultdict(lambda: defaultdict(make_acc))
     monthly_by_gender = defaultdict(lambda: defaultdict(make_acc))
-    by_age_and_gender = defaultdict(lambda: defaultdict(make_acc))
+    monthly_by_age_and_gender = defaultdict(lambda: defaultdict(lambda: defaultdict(make_acc)))
 
     field_counts_overall = {c: 0 for c in CAMPO_LIST}
     monthly_field_counts = defaultdict(lambda: {c: 0 for c in CAMPO_LIST})
@@ -291,23 +290,22 @@ def process_reports_from_iterable(iter_reports):
         adicionais = report.get("InformacoesAdicionais", {}) or {}
 
         des_score = compute_des_from_informacoes(iniciais)
-
-        combine(overall, des_score)
         idade_val = adicionais.get("Idade") or adicionais.get("IdadeDeclaradaOuInferidaDoAutor") or adicionais.get("idade")
         genero_val = adicionais.get("Genero") or adicionais.get("GeneroDeclarado") or adicionais.get("GeneroAutoDeclaradoOuInferidoDoAutor") or adicionais.get("genero")
         age_label = age_range_label(idade_val)
         gen_label = normalize_gender(genero_val)
-
-        combine(by_age[age_label], des_score)
-        combine(by_gender[gen_label], des_score)
-        
-        combine(by_age_and_gender[age_label][gen_label], des_score)
-
         dt = adicionais.get("DataUltimoTweet") or adicionais.get("data_ultimo_tweet") or adicionais.get("DataUltimoPost")
         month = parse_iso_month(dt)
+
+        combine(overall, des_score)
+        combine(by_age[age_label], des_score)
+        combine(by_gender[gen_label], des_score)
+        combine(by_age_and_gender[age_label][gen_label], des_score)
+        
         combine(monthly_general[month], des_score)
         combine(monthly_by_age[month][age_label], des_score)
         combine(monthly_by_gender[month][gen_label], des_score)
+        combine(monthly_by_age_and_gender[month][age_label][gen_label], des_score)
 
         for campo in CAMPO_LIST:
             present = is_exposed(iniciais.get(campo, None))
@@ -324,6 +322,10 @@ def process_reports_from_iterable(iter_reports):
         "overall": agg_overall_final,
         "by_age": {k: finalize(v) for k, v in by_age.items()}, 
         "by_gender": {k: finalize(v) for k, v in by_gender.items()},
+        "by_age_and_gender": {
+            age: {g: finalize(acc) for g, acc in gen_map.items()}
+            for age, gen_map in by_age_and_gender.items()
+        },
         "monthly_general": {k: finalize(v) for k, v in monthly_general.items()},
         "monthly_by_age": {
             month: {age: finalize(acc) for age, acc in age_map.items()}
@@ -333,9 +335,12 @@ def process_reports_from_iterable(iter_reports):
             month: {g: finalize(acc) for g, acc in gen_map.items()}
             for month, gen_map in monthly_by_gender.items()
         },
-        "by_age_and_gender": {
-            age: {g: finalize(acc) for g, acc in gen_map.items()}
-            for age, gen_map in by_age_and_gender.items()
+        "monthly_by_age_and_gender": {
+            month: {
+                age: {g: finalize(acc) for g, acc in gen_map.items()}
+                for age, gen_map in age_map.items()
+            }
+            for month, age_map in monthly_by_age_and_gender.items()
         },
         "field_counts_overall": field_counts_overall,
         "monthly_field_counts": {m: v for m, v in monthly_field_counts.items()},
@@ -345,12 +350,17 @@ def process_reports_from_iterable(iter_reports):
     return result
 
 def main():
-    global script_to_run_final 
-
     use_db = all([USER, PASS, HOST, PORT, AUTH_DB, DB_NAME]) and MongoClient is not None
     docs_iter = None
     client = None
     connected_to_db = False
+    
+    script_content = ""
+    try:
+        with open(__file__, 'r', encoding='utf-8') as f_self:
+            script_content = f_self.read()
+    except NameError:
+        print("[WARN] __file__ não definido. Não será possível salvar o script automaticamente.")
 
     if use_db:
         try:
@@ -387,7 +397,7 @@ def main():
                         "InformacoesIniciais": {
                             "NomeDeclaradoOuSugeridoPeloAutor": "VERDADEIRO",
                             "IdadeDeclaradaOuInferidaDoAutor": "VERDADEIRO",
-                            "MencaoDoAutorADadosBancarios": "VERDADEIRO" 
+                            "MencaoDoAutorADadosBancarios": "VERDADEIRO"
                         },
                         "InformacoesAdicionais": {
                             "Idade": 22,
@@ -399,7 +409,7 @@ def main():
                 {
                     "report": {
                         "InformacoesIniciais": {
-                            "NomeDeclaradoOuSugeridoPeloAutor": "VERDADEIRO" 
+                            "NomeDeclaradoOuSugeridoPeloAutor": "VERDADEIRO"
                         },
                         "InformacoesAdicionais": {
                             "Idade": 35,
@@ -422,7 +432,7 @@ def main():
                     }
                 },
                 {
-                    "report": { 
+                    "report": { # Exposição 0 -> DES 1000
                         "InformacoesIniciais": {},
                         "InformacoesAdicionais": {
                             "Idade": 68,
@@ -450,24 +460,27 @@ def main():
 
     if not docs_iter:
         print("[ERROR] Nenhum documento para processar (DB e fallback falharam).")
-        agg = process_reports_from_iterable([]) 
+        agg = process_reports_from_iterable([]) # Gera um resultado vazio
     else:
         agg = process_reports_from_iterable(docs_iter)
     
     print("[INFO] Resultados da Agregação:")
     print(json.dumps(agg, ensure_ascii=False, indent=2))
     
-    try:
-        with open("aggregate_reports_final.py", "w", encoding="utf-8") as f:
-            f.write(script_to_run_final)
-        print("[INFO] Script modificado salvo em 'aggregate_reports_final.py'.")
-    except Exception as e_save_script:
-        print(f"[WARN] Falha ao salvar script modificado: {e_save_script}")
+    if script_content:
+        try:
+            with open("aggregate_reports_final_monthly.py", "w", encoding="utf-8") as f:
+                f.write(script_content)
+            print("[INFO] Script modificado salvo em 'aggregate_reports_final_monthly.py'.")
+        except Exception as e_save_script:
+            print(f"[WARN] Falha ao salvar script modificado: {e_save_script}")
+    else:
+        print("[INFO] Para salvar este script, copie o código e salve como 'aggregate_reports_final_monthly.py'")
         
     try:
-        with open("aggregation_results_final.json", "w", encoding="utf-8") as f:
+        with open("aggregation_results_final_monthly.json", "w", encoding="utf-8") as f:
             json.dump(agg, f, ensure_ascii=False, indent=2)
-        print("[INFO] Resultados da agregação salvos em 'aggregation_results_final.json'.")
+        print("[INFO] Resultados da agregação salvos em 'aggregation_results_final_monthly.json'.")
     except Exception as e_save_json:
         print(f"[WARN] Falha ao salvar resultados da agregação: {e_save_json}")
 
