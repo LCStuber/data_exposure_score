@@ -1,16 +1,3 @@
-#!/usr/bin/env python3
-"""
-aggregate_reports.py - com contagem de aparição por campo
-
-Saídas principais adicionadas:
- - field_counts_overall: { campo: aparicoes }
- - monthly_field_counts: { 'YYYY-MM': { campo: aparicoes } }
- - by_age_field_counts: { faixa: { campo: aparicoes } }
- - by_gender_field_counts: { genero: { campo: aparicoes } }
-
-Mantém: overall, by_age, by_gender, monthly_general, monthly_by_age, monthly_by_gender (médias de DES).
-"""
-
 import os
 import json
 from datetime import datetime
@@ -22,7 +9,6 @@ try:
 except Exception:
     MongoClient = None
 
-# ----------------- Config / Campos -----------------
 USER = os.getenv("MONGO_USER")
 PASS = os.getenv("MONGO_PASS")
 HOST = os.getenv("MONGO_HOST")
@@ -73,7 +59,6 @@ CAMPO_LIST = [
     "MencaoDoAutorAPosseDeChavePix"
 ]
 
-# ----------------- Lógica DES (do seu des.py) -----------------
 categorias = {
     "Informação Financeira": {"Impacto": 10, "Explorabilidade": 8},
     "Documentos Pessoais": {"Impacto": 10, "Explorabilidade": 7},
@@ -116,7 +101,6 @@ exposicao_autor = {
 
 DES_MAX = sum(v["Impacto"] * v["Explorabilidade"] for v in exposicao_autor.values())
 
-# ----------------- Helpers (reaproveitáveis) -----------------
 def is_exposed(val: Any) -> bool:
     """Determina se um campo deve ser contado como 'apareceu/exposto'."""
     if val is None:
@@ -191,7 +175,6 @@ def age_range_label(age_value: Optional[Any]) -> str:
             return rng["label"]
     return "Outros"
 
-# ----------------- Aggregation & contagens por campo -----------------
 def make_acc():
     return {"count": 0, "sum_des": 0.0}
 
@@ -205,7 +188,6 @@ def finalize(acc):
     return {"count": acc["count"], "avg_des": acc["sum_des"] / acc["count"]}
 
 def process_reports_from_iterable(iter_reports):
-    # DES aggregates (como antes)
     overall = make_acc()
     by_age = defaultdict(make_acc)
     by_gender = defaultdict(make_acc)
@@ -213,7 +195,6 @@ def process_reports_from_iterable(iter_reports):
     monthly_by_age = defaultdict(lambda: defaultdict(make_acc))
     monthly_by_gender = defaultdict(lambda: defaultdict(make_acc))
 
-    # Contagens por campo (novas)
     field_counts_overall = {c: 0 for c in CAMPO_LIST}
     monthly_field_counts = defaultdict(lambda: {c: 0 for c in CAMPO_LIST})
     by_age_field_counts = defaultdict(lambda: {c: 0 for c in CAMPO_LIST})
@@ -236,7 +217,6 @@ def process_reports_from_iterable(iter_reports):
 
         des_score = compute_des_from_informacoes(iniciais)
 
-        # DES aggregates
         combine(overall, des_score)
         idade_val = adicionais.get("Idade") or adicionais.get("IdadeDeclaradaOuInferidaDoAutor") or adicionais.get("idade")
         genero_val = adicionais.get("Genero") or adicionais.get("GeneroDeclarado") or adicionais.get("GeneroAutoDeclaradoOuInferidoDoAutor") or adicionais.get("genero")
@@ -252,7 +232,6 @@ def process_reports_from_iterable(iter_reports):
         combine(monthly_by_age[month][age_label], des_score)
         combine(monthly_by_gender[month][gen_label], des_score)
 
-        # Field counts: para cada campo verifica se 'is_exposed' -> incrementa nas estruturas apropriadas
         for campo in CAMPO_LIST:
             present = is_exposed(iniciais.get(campo, None))
             if present:
@@ -261,12 +240,10 @@ def process_reports_from_iterable(iter_reports):
                 by_age_field_counts[age_label][campo] += 1
                 by_gender_field_counts[gen_label][campo] += 1
 
-    # Adiciona bucket "Todos" para by_age (como antes)
     agg_overall_final = finalize(overall)
     todos_acc = {"count": agg_overall_final["count"], "sum_des": (agg_overall_final["avg_des"] * agg_overall_final["count"]) if agg_overall_final["avg_des"] is not None else 0.0}
     by_age["Todos"] = todos_acc
 
-    # Finaliza
     result = {
         "overall": agg_overall_final,
         "by_age": {k: finalize(v) for k, v in by_age.items()},
@@ -280,7 +257,6 @@ def process_reports_from_iterable(iter_reports):
             month: {g: finalize(acc) for g, acc in gen_map.items()}
             for month, gen_map in monthly_by_gender.items()
         },
-        # novos: contagens por campo
         "field_counts_overall": field_counts_overall,
         "monthly_field_counts": {m: v for m, v in monthly_field_counts.items()},
         "by_age_field_counts": {age: v for age, v in by_age_field_counts.items()},
@@ -288,7 +264,6 @@ def process_reports_from_iterable(iter_reports):
     }
     return result
 
-# ----------------- Entrypoint (igual ao anterior) -----------------
 def main():
     use_db = all([USER, PASS, HOST, PORT, AUTH_DB, DB_NAME]) and MongoClient is not None
     docs_iter = None
@@ -331,13 +306,13 @@ def main():
 
     if connected_to_db and client is not None:
         try:
-            summary_coll = db.get_collection("reports_aggregates")
+            summary_coll = db.get_collection("aggregates")
             doc = {
                 "generated_at": datetime.utcnow().isoformat() + "Z",
                 "aggregates": agg
             }
             summary_coll.insert_one(doc)
-            print("[INFO] Agregados gravados em 'reports_aggregates'.")
+            print("[INFO] Agregados gravados em 'aggregates'.")
         except Exception as e:
             print(f"[WARN] Não foi possível gravar agregados: {e}")
 
