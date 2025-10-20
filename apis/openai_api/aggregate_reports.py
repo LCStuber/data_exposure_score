@@ -29,8 +29,6 @@ ageRanges = [
 AGE_LABELS = [r["label"] for r in ageRanges]
 
 # --- NOVAS CONSTANTES PARA FAIXA DE DES ---
-# Definindo as faixas de DES solicitadas
-# Usamos [min, max) para todas, exceto a última [min, max]
 DES_RANGES_DEF = [
   { "label": "0-199", "min": 0, "max": 200 },
   { "label": "200-399", "min": 200, "max": 400 },
@@ -283,6 +281,9 @@ def process_reports_from_iterable(iter_reports):
     monthly_general = defaultdict(make_acc)
     monthly_by_age = defaultdict(lambda: defaultdict(make_acc))
     monthly_by_gender = defaultdict(lambda: defaultdict(make_acc))
+    # --- NOVA VISÃO ---
+    by_age_and_gender = defaultdict(lambda: defaultdict(make_acc))
+    # --- FIM DA NOVA VISÃO ---
 
     field_counts_overall = {c: 0 for c in CAMPO_LIST}
     monthly_field_counts = defaultdict(lambda: {c: 0 for c in CAMPO_LIST})
@@ -314,6 +315,10 @@ def process_reports_from_iterable(iter_reports):
 
         combine(by_age[age_label], des_score)
         combine(by_gender[gen_label], des_score)
+        
+        # --- NOVA VISÃO ---
+        combine(by_age_and_gender[age_label][gen_label], des_score)
+        # --- FIM DA NOVA VISÃO ---
 
         dt = adicionais.get("DataUltimoTweet") or adicionais.get("data_ultimo_tweet") or adicionais.get("DataUltimoPost")
         month = parse_iso_month(dt)
@@ -329,18 +334,12 @@ def process_reports_from_iterable(iter_reports):
                 by_age_field_counts[age_label][campo] += 1
                 by_gender_field_counts[gen_label][campo] += 1
 
-    # --- LÓGICA 'Todos' CORRIGIDA ---
-    # Atribui o acumulador 'overall' (bruto) à chave 'Todos'
-    # Isso garante que 'Todos' seja finalizado corretamente com todas as novas métricas.
     by_age["Todos"] = overall
-    
-    # Finaliza o 'overall' separadamente para a chave 'overall' do resultado
     agg_overall_final = finalize(overall)
-    # --- FIM DA CORREÇÃO ---
 
     result = {
         "overall": agg_overall_final,
-        "by_age": {k: finalize(v) for k, v in by_age.items()}, # Agora finaliza 'Todos' corretamente
+        "by_age": {k: finalize(v) for k, v in by_age.items()}, 
         "by_gender": {k: finalize(v) for k, v in by_gender.items()},
         "monthly_general": {k: finalize(v) for k, v in monthly_general.items()},
         "monthly_by_age": {
@@ -351,6 +350,12 @@ def process_reports_from_iterable(iter_reports):
             month: {g: finalize(acc) for g, acc in gen_map.items()}
             for month, gen_map in monthly_by_gender.items()
         },
+        # --- NOVA VISÃO ---
+        "by_age_and_gender": {
+            age: {g: finalize(acc) for g, acc in gen_map.items()}
+            for age, gen_map in by_age_and_gender.items()
+        },
+        # --- FIM DA NOVA VISÃO ---
         "field_counts_overall": field_counts_overall,
         "monthly_field_counts": {m: v for m, v in monthly_field_counts.items()},
         "by_age_field_counts": {age: v for age, v in by_age_field_counts.items()},
@@ -359,6 +364,8 @@ def process_reports_from_iterable(iter_reports):
     return result
 
 def main():
+    global script_to_run_final # Acessa a variável global para salvá-la
+    
     use_db = all([USER, PASS, HOST, PORT, AUTH_DB, DB_NAME]) and MongoClient is not None
     docs_iter = None
     client = None
@@ -369,7 +376,6 @@ def main():
             tls_ca = os.getenv("MONGO_TLS_CA_FILE", "rds-combined-ca-bundle.pem")
             if not os.path.exists(tls_ca):
                 print(f"[WARN] Arquivo TLS CA não encontrado em {tls_ca}. Tentando conectar sem TLS CA.")
-                # Tenta conectar sem o CA se não existir (não ideal para produção, mas bom para dev)
                 uri = (
                     f"mongodb://{HOST}:{PORT}/?tls=true"
                     f"&replicaSet=rs0&readPreference=secondaryPreferred&retryWrites=false&authSource={AUTH_DB}"
@@ -459,8 +465,7 @@ def main():
             print(f"[INFO] Usando fallback: {fallback_path}")
         except Exception as e_fallback:
              print(f"[ERROR] Falha ao criar ou ler o arquivo de fallback: {e_fallback}")
-             # Se o fallback falhar, não há o que processar
-             docs_iter = [] # Processa um iterável vazio
+             docs_iter = []
 
     if not docs_iter:
         print("[ERROR] Nenhum documento para processar (DB e fallback falharam).")
@@ -472,11 +477,20 @@ def main():
     print("[INFO] Resultados da Agregação:")
     print(json.dumps(agg, ensure_ascii=False, indent=2))
     
+    # Salva o script modificado
+    try:
+        # Nota: Estamos salvando a string 'script_to_run_final' que está no escopo global
+        with open("aggregate_reports_final.py", "w", encoding="utf-8") as f:
+            f.write(script_to_run_final)
+        print("[INFO] Script modificado salvo em 'aggregate_reports_final.py'.")
+    except Exception as e_save_script:
+        print(f"[WARN] Falha ao salvar script modificado: {e_save_script}")
+        
     # Salva os resultados da agregação
     try:
-        with open("aggregation_results.json", "w", encoding="utf-8") as f:
+        with open("aggregation_results_final.json", "w", encoding="utf-8") as f:
             json.dump(agg, f, ensure_ascii=False, indent=2)
-        print("[INFO] Resultados da agregação salvos em 'aggregation_results.json'.")
+        print("[INFO] Resultados da agregação salvos em 'aggregation_results_final.json'.")
     except Exception as e_save_json:
         print(f"[WARN] Falha ao salvar resultados da agregação: {e_save_json}")
 
