@@ -100,7 +100,7 @@ function CollapsibleSection({
           </div>
 
           {/* resumo opcional da seção macro */}
-          <p className="mt-2 text-sm text-[var(--color-muted)]">Resumo da seção {title}.</p>
+          {/* <p className="mt-2 text-sm text-[var(--color-muted)]">Resumo da seção {title}.</p> */}
         </div>
       </div>
 
@@ -116,7 +116,7 @@ function SubSection({ id, title, children }: { id: string; title: string; childr
     <article id={id} className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 shadow-sm">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h4 className="text-lg font-semibold">{title}</h4>
+          <h4 className="text-2xl ml-2 font-semibold">{title}</h4>
           <p className="mt-1 text-sm text-[var(--color-muted)]">{/* descrição curta opcional */}</p>
         </div>
       </div>
