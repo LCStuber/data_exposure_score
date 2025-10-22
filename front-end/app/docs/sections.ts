@@ -5,7 +5,8 @@ export const docsStructure = [
         module: "Geral",
         subsections: [
             { id: "intro-overview", title: "Visão Geral" },
-            { id: "intro-significado", title: "Significado do Projeto" }
+            { id: "intro-significado", title: "Significado do Projeto" },
+            { id: "intro-objetivos", title: "Objetivos" },
         ]
     },
     {
@@ -26,4 +27,4 @@ export const docsStructure = [
             { id: "ref-analysis", title: "Análise e Modelo" }
         ]
     }
-] 
+]

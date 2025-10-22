@@ -9,10 +9,13 @@ import IntroOverview from "./contents/intro-overview"
 import IntroSignificado from "./contents/intro-significado"
 import MethodCollection from "./contents/method-collection"
 import MethodAnalysis from "./contents/method-analysis"
+import IntroObjetivos from "./contents/intro-objetivos"
+
 
 const contentMap: Record<string, React.FC> = {
   "intro-overview": IntroOverview,
   "intro-significado": IntroSignificado,
+  "intro-objetivos": IntroObjetivos,
   "method-collection": MethodCollection,
   "method-analysis": MethodAnalysis,
 }
