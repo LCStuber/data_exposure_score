@@ -10,6 +10,8 @@ import IntroSignificado from "./contents/intro-significado"
 import MethodCollection from "./contents/method-collection"
 import MethodAnalysis from "./contents/method-analysis"
 import IntroObjetivos from "./contents/intro-objetivos"
+import MethodCalculation from "./contents/method-calculation"
+import VariableSelection from "./contents/variable-selection"
 
 
 const contentMap: Record<string, React.FC> = {
@@ -18,6 +20,8 @@ const contentMap: Record<string, React.FC> = {
   "intro-objetivos": IntroObjetivos,
   "method-collection": MethodCollection,
   "method-analysis": MethodAnalysis,
+  "method-calculation": MethodCalculation,
+  "variable-selection": VariableSelection,
 }
 
 function CollapsibleSection({

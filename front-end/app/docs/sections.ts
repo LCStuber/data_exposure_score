@@ -20,11 +20,11 @@ export const docsStructure = [
     },
     {
         id: "reference",
-        title: "Referências",
+        title: "Cálculo da Ferramenta",
         module: "Geral",
         subsections: [
-            { id: "ref-collection", title: "Coleta de Dados" },
-            { id: "ref-analysis", title: "Análise e Modelo" }
+            { id: "variable-selection", title: "Seleção de Variáveis" },
+            { id: "method-calculation", title: "Calculo do Score" }
         ]
     }
 ]
