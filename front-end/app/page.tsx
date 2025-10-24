@@ -25,14 +25,9 @@ import {
   CartesianGrid,
   Legend,
 } from 'recharts'
-// Assuming useThemeColors exists and works as intended
-// If not, replace calls like colors.accent with static values e.g., "'#0ea5e9'"
-// For simplicity, I'll assume it exists and returns an object like { border: '#e2e8f0', card: '#ffffff', foreground: '#0f172a', muted: '#64748b', accent: '#0ea5e9', accent100: '#e0f2fe' } for light mode
-// And corresponding dark mode values. You might need to adjust this hook or replace its usage.
 import useThemeColors from './hooks/use-theme-colors'
 
 
-// Definição dos labels das variáveis (unchanged)
 const variableLabels: Record<string, string> = {
   NomeDeclaradoOuSugeridoPeloAutor: 'Nome declarado',
   IdadeDeclaradaOuInferidaDoAutor: 'Idade',
@@ -65,14 +60,12 @@ const variableLabels: Record<string, string> = {
 }
 const variableKeys = Object.keys(variableLabels)
 
-// Componente NavBar (sem alterações)
 function NavBar() {
   const [open, setOpen] = useState(false)
   const [isDark, setIsDark] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    // Initialize theme based on localStorage or system preference
     const storedTheme = localStorage.getItem('theme');
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     if (storedTheme === 'dark' || (!storedTheme && prefersDark)) {
@@ -83,7 +76,6 @@ function NavBar() {
       setIsDark(false);
     }
 
-    // Keyboard shortcut listener
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
@@ -114,7 +106,7 @@ function NavBar() {
           <div className="flex items-center gap-5">
             <Link href="#" className="pl-2 flex items-center gap-2">
               <Image
-              src="/desicon.svg" // Assuming desicon.svg is in the public folder
+              src="/desicon.svg" 
               alt="DES Logo"
               width={48}
               height={48}
@@ -127,22 +119,11 @@ function NavBar() {
             <nav className="hidden md:flex items-center gap-5 text-sm text-slate-600 dark:text-slate-400">
               <a href="#overview" className="hover:text-slate-900 dark:hover:text-slate-100">Visão Geral</a>
               <a href="#charts" className="hover:text-slate-900 dark:hover:text-slate-100">Gráficos</a>
-              <a href="#docs" className="hover:text-slate-900 dark:hover:text-slate-100">Docs</a> {/* Changed link to match footer id */}
+              <a href="docs" className="hover:text-slate-900 dark:hover:text-slate-100">Docs</a> 
             </nav>
           </div>
           <div className="flex items-center gap-2">
-            <div className="relative hidden sm:block">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 dark:text-slate-500" />
-              <input
-                ref={searchRef}
-                placeholder="Buscar…"
-                aria-label="Buscar"
-                className="pl-8 pr-14 py-2 rounded-lg bg-white dark:bg-slate-800 ring-1 ring-slate-200 dark:ring-slate-700 placeholder:text-slate-400 dark:placeholder:text-slate-500 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500 w-56 shadow-sm"
-              />
-              <kbd className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 dark:text-slate-400 border border-slate-300 dark:border-slate-600 rounded px-1 bg-slate-50 dark:bg-slate-700">
-                Ctrl K
-              </kbd>
-            </div>
+
             <button
               onClick={toggleTheme}
               aria-label="Alternar tema"
@@ -168,7 +149,7 @@ function NavBar() {
           <nav className="px-4 py-3 flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-300">
             <a href="#overview" className="hover:text-slate-900 dark:hover:text-slate-100" onClick={() => setOpen(false)}>Visão Geral</a>
             <a href="#charts" className="hover:text-slate-900 dark:hover:text-slate-100" onClick={() => setOpen(false)}>Gráficos</a>
-            <a href="#docs" className="hover:text-slate-900 dark:hover:text-slate-100" onClick={() => setOpen(false)}>Docs</a> {/* Changed link */}
+            <a href="#docs" className="hover:text-slate-900 dark:hover:text-slate-100" onClick={() => setOpen(false)}>Docs</a> 
           </nav>
         </div>
       )}
@@ -176,7 +157,6 @@ function NavBar() {
   )
 }
 
-// Configurações (unchanged)
 const ageLabels = ["Todos", "< 18", "18-24", "25-34", "35-44", "45-54", "55-64", "65+", "Outros"];
 const genderLabels = ["Todos", "Masculino", "Feminino", "Outros"];
 
@@ -185,7 +165,6 @@ const lineColors = [
   '#14b8a6', '#f59e0b', '#64748b', '#3b82f6', '#10b981', '#d946ef'
 ];
 
-// Default empty KPI structure for fallbacks
 const defaultKpiData = {
     count: 0,
     avg_des: 0,
@@ -198,13 +177,11 @@ export default function Page() {
   const [isZoomed, setIsZoomed] = useState(false)
   const colors = useThemeColors()
 
-  // Estado dos filtros
   const [selectedAgeRange, setSelectedAgeRange] = useState(ageLabels[0]);
   const [selectedGender, setSelectedGender] = useState(genderLabels[0]);
 
   const [isDark, setIsDark] = useState(false)
 
-  // Hook para tema (unchanged)
   useEffect(() => {
     const update = () => setIsDark(document.documentElement.classList.contains('dark'))
     update()
@@ -213,26 +190,19 @@ export default function Page() {
     return () => observer.disconnect()
   }, [])
 
-  // Fetch dos dados (unchanged)
   useEffect(() => {
-      // Use the local file path for testing if needed, otherwise use the API endpoint
-      // fetch('/aggregates.json') // For local testing
-      fetch('https://api.des.lcstuber.net/aggregates') // For production endpoint
+
+      fetch('https://api.des.lcstuber.net/aggregates')
         .then((r) => r.json())
         .then((data) => {
-          // The API might return an array with one item, or just the item
           const item = Array.isArray(data) ? data[0] : data
-          // Check if the actual aggregates are nested under an 'aggregates' key
           setAggregates(item.aggregates ?? item)
         })
         .catch((err) => {
           console.error('Failed to load aggregates:', err)
-          // Optionally set aggregates to an empty object or handle the error state
-          // setAggregates({});
         })
     }, [])
 
-  // Estado do seletor de variáveis (unchanged)
   const [selectedVariables, setSelectedVariables] = useState<Record<string, boolean>>(() => ({
     NomeDeclaradoOuSugeridoPeloAutor: true,
     IdadeDeclaradaOuInferidaDoAutor: true,
@@ -240,7 +210,6 @@ export default function Page() {
     OpinioesPoliticasExpressasPeloAutor: true,
     ExposicaoDeRelacionamentosPessoaisPeloAutor: true,
     IndicadoresDeRendaPropriaMencionadosPeloAutor: true,
-    // Initialize others as false or based on default view preferences
     ...Object.fromEntries(variableKeys.filter(k => ![
         'NomeDeclaradoOuSugeridoPeloAutor',
         'IdadeDeclaradaOuInferidaDoAutor',
@@ -258,7 +227,6 @@ export default function Page() {
     }));
   };
 
-  // Handlers dos filtros (unchanged)
   const handleSelectAge = (age: string) => {
     setSelectedAgeRange(age);
   };
@@ -272,17 +240,55 @@ export default function Page() {
     setSelectedGender('Todos');
   };
 
-  // Filter status checks (unchanged)
   const isAgeFiltered = selectedAgeRange !== 'Todos';
   const isGenderFiltered = selectedGender !== 'Todos';
+    const { barData, barTitle } = useMemo(() => {
+  if (!aggregates) return { barData: [], barTitle: 'Top 5 variáveis mais frequentes' };
 
-  // 1. Dados para os KPIs (logic unchanged)
+  let counts: Record<string, number> = {};
+  let title = 'Top 5 variáveis mais frequentes'; 
+
+  try {
+    if (isAgeFiltered && isGenderFiltered) {
+      counts = aggregates.by_age_and_gender_field_counts?.[selectedAgeRange]?.[selectedGender] ?? {};
+      title += ` (${selectedAgeRange} & ${selectedGender})`;
+    } else if (isAgeFiltered) {
+      counts = aggregates.by_age_field_counts?.[selectedAgeRange] ?? {}; 
+      title += ` (${selectedAgeRange})`;
+    } else if (isGenderFiltered) {
+      counts = aggregates.by_gender_field_counts?.[selectedGender] ?? {}; 
+      title += ` (${selectedGender})`;
+    } else {
+      counts = aggregates.field_counts_overall ?? {};
+    }
+  } catch (e) {
+    console.error('Erro ao acessar contagens filtradas:', e);
+  }
+
+  if (typeof counts !== 'object' || counts === null) {
+    console.warn('Counts data is not an object:', counts);
+    counts = {};
+  }
+
+
+  const arr = Object.entries(counts)
+    .map(([key, val]) => ({
+      key,
+      label: variableLabels[key] ?? key,
+      value: Number(val ?? 0),
+    }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 5);
+
+  return { barData: arr, barTitle: title };
+
+}, [aggregates, isAgeFiltered, isGenderFiltered, selectedAgeRange, selectedGender]);
+
   const kpiData = useMemo(() => {
-    if (!aggregates) return defaultKpiData; // Use default on initial load
+    if (!aggregates) return defaultKpiData;
 
     try {
       if (isAgeFiltered && isGenderFiltered) {
-        // Access combined data, provide default if specific combo is missing
         return aggregates?.by_age_and_gender?.[selectedAgeRange]?.[selectedGender] ?? defaultKpiData;
       }
       if (isAgeFiltered) {
@@ -293,19 +299,17 @@ export default function Page() {
       }
     } catch (e) {
       console.error(`Error accessing KPI data for filters: ${selectedAgeRange} / ${selectedGender}`, e);
-      return defaultKpiData; // Return default on error
+      return defaultKpiData; 
     }
 
     return aggregates.overall ?? defaultKpiData;
   }, [aggregates, selectedAgeRange, selectedGender, isAgeFiltered, isGenderFiltered]);
 
-  // Valores dos KPIs (logic unchanged)
   const kAvgScore = Math.round(kpiData?.avg_des ?? 0)
   const kCount = kpiData?.count ?? 0
   const kPct800 = (kpiData?.percent_gt_800 ?? 0).toFixed(1)
   const signal = kAvgScore >= 800 ? 'Alto' : kAvgScore >= 600 ? 'Médio' : 'Baixo'
 
-  // 2. Dados para o Gráfico de Distribuição (Barras) (logic unchanged)
   const { distData, distTitle } = useMemo(() => {
     const ranges = kpiData?.des_range_counts;
 
@@ -328,7 +332,6 @@ export default function Page() {
   }, [kpiData, isAgeFiltered, isGenderFiltered, selectedAgeRange, selectedGender]);
 
 
-  // 3. Dados para o Gráfico de Evolução DES (Linha) (logic unchanged)
   const { series, seriesNote } = useMemo(() => {
     if (!aggregates) return { series: [], seriesNote: 'Carregando...' };
 
@@ -366,7 +369,7 @@ export default function Page() {
             } else if (isGenderFiltered) {
                 avg_des = monthData?.[selectedGender]?.avg_des ?? 0;
             } else {
-                avg_des = monthData?.avg_des ?? 0; // Overall case
+                avg_des = monthData?.avg_des ?? 0;
             }
 
             return {
@@ -387,29 +390,27 @@ export default function Page() {
     }
   }, [aggregates, selectedAgeRange, selectedGender, isAgeFiltered, isGenderFiltered]);
 
-  // *** FIX: Moved this hook outside the other useMemo ***
-  // 5. Data for the Monthly Variable Count Evolution Line Chart
+
   const { monthlyVariableData, monthlyVariableTitle, monthlyVariableNote } = useMemo(() => {
-    if (!aggregates) return { monthlyVariableData: [], monthlyVariableTitle: 'Evolução Mensal das Variáveis', monthlyVariableNote: '' };
+    if (!aggregates) return { monthlyVariableData: [], monthlyVariableTitle: 'Visão Geral das Variáveis das Variáveis', monthlyVariableNote: '' };
 
     let monthlySource: any = null;
-    let title = 'Evolução Mensal das Variáveis (Geral)';
-    let note = 'Contagem mensal das variáveis selecionadas na amostra geral.';
+    let title = 'Visão Geral das Variáveis';
+    let note = 'Comportamento geral.';
 
     try {
-        // Determine the correct data source based on filters
         if (isAgeFiltered && isGenderFiltered) {
             monthlySource = aggregates?.monthly_by_age_and_gender_field_counts;
-            title = `Evolução Mensal (${selectedAgeRange} & ${selectedGender})`;
-            note = `Contagem mensal para Idade (${selectedAgeRange}) e Gênero (${selectedGender}).`;
+            title = `Visão Geral das Variáveis (${selectedAgeRange} & ${selectedGender})`;
+            note = `Comportamento com filtros (${selectedAgeRange}) e Gênero (${selectedGender}).`;
         } else if (isAgeFiltered) {
             monthlySource = aggregates?.monthly_by_age_field_counts;
-            title = `Evolução Mensal (${selectedAgeRange})`;
-            note = `Contagem mensal para Idade (${selectedAgeRange}).`;
+            title = `Visão Geral das Variáveis (${selectedAgeRange})`;
+            note = `Comportamento com filtro (${selectedAgeRange}).`;
         } else if (isGenderFiltered) {
             monthlySource = aggregates?.monthly_by_gender_field_counts;
-            title = `Evolução Mensal (${selectedGender})`;
-            note = `Contagem mensal para Gênero (${selectedGender}).`;
+            title = `Visão Geral das Variáveis (${selectedGender})`;
+            note = `Comportamento com filtro (${selectedGender}).`;
         } else {
             monthlySource = aggregates?.monthly_field_counts;
         }
@@ -432,7 +433,6 @@ export default function Page() {
             const monthEntry: { month: string; [key: string]: number | string } = { month };
             let monthDataForFilters = monthlySource[month];
 
-             // Drill down if filters are applied
             if (isAgeFiltered && isGenderFiltered) {
                  monthDataForFilters = monthDataForFilters?.[selectedAgeRange]?.[selectedGender] ?? {};
             } else if (isAgeFiltered) {
@@ -441,19 +441,16 @@ export default function Page() {
                  monthDataForFilters = monthDataForFilters?.[selectedGender] ?? {};
             }
 
-             // Ensure monthDataForFilters is an object before proceeding
              monthDataForFilters = monthDataForFilters ?? {};
 
 
-            // Populate counts for active variables
             activeVariableKeys.forEach(key => {
-                monthEntry[key] = monthDataForFilters[key] ?? 0; // Use count or 0 if missing
+                monthEntry[key] = monthDataForFilters[key] ?? 0; 
             });
 
             return monthEntry;
         });
 
-         // Add note if specific combo resulted in no data points for any selected variable
         const hasDataPoints = chartData.some(entry => activeVariableKeys.some(key => (entry[key] as number) > 0));
         if (!hasDataPoints && (isAgeFiltered || isGenderFiltered)) {
             note = `Dados de contagem mensal não disponíveis para a seleção ${selectedAgeRange} / ${selectedGender}.`;
@@ -470,10 +467,9 @@ export default function Page() {
   }, [aggregates, selectedAgeRange, selectedGender, isAgeFiltered, isGenderFiltered, selectedVariables]);
 
 
-  // Tela de carregamento (unchanged)
   if (!aggregates) {
     return (
-      <div className="bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-300"> {/* Use direct colors for loading */}
+      <div className="bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-300"> 
         <NavBar />
         <main className="max-w-7xl mx-auto p-6">
           <div className="rounded-2xl p-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
@@ -485,7 +481,6 @@ export default function Page() {
     )
   }
 
-  // Renderização da página
   return (
     <div className="bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-300 text-slate-900 dark:text-slate-100">
 
@@ -500,7 +495,6 @@ export default function Page() {
       </section>
 
       <main className="max-w-7xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-4 gap-6" id="charts">
-        {/* Sidebar with Filters */}
         <aside className="lg:col-span-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm sticky top-24 h-fit">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-300">Filtros</h3>
@@ -530,15 +524,15 @@ export default function Page() {
                 onClick={() => handleSelectGender(label)}
                 className={`px-3 py-1.5 rounded-full text-xs sm:text-sm border transition ${ selectedGender === label ? 'bg-sky-600 text-white border-sky-600 shadow-sm' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700' }`}
                 type="button">
-                {label === 'Todos' ? 'Todos' : label} {/* Display 'Todos' consistently */}
+                {label === 'Todos' ? 'Todos' : label}
               </button>
             ))}
           </div>
         </aside>
 
-        {/* Main Content Area */}
+
         <section className="lg:col-span-3 space-y-6">
-          {/* KPIs */}
+
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4" aria-label="Indicadores">
             {[
               { label: 'Escore Médio', value: kAvgScore, icon: <BarChart2 className="w-4 h-4 text-sky-500" /> },
@@ -555,9 +549,7 @@ export default function Page() {
             ))}
           </div>
 
-          {/* Charts Row */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-             {/* Line Chart (DES Evolution) */}
              <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800">
               <div className="flex justify-between items-center mb-1">
                 <h4 className="font-semibold text-slate-600 dark:text-slate-400 text-sm sm:text-base">Evolução Média DES (12m)</h4>
@@ -606,7 +598,6 @@ export default function Page() {
                 </LineChart>
               </ResponsiveContainer>
             </div>
-             {/* Bar Chart (DES Distribution) */}
             <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800">
               <h4 className="font-semibold mb-3 text-slate-600 dark:text-slate-400 text-sm sm:text-base">{distTitle}</h4>
               <ResponsiveContainer width="100%" height={300}>
@@ -645,98 +636,45 @@ export default function Page() {
             </div>
           </div>
 
-          {/* *** FIX: Using monthlyVariable... variables here *** */}
-          {/* Monthly Variable Counts Line Chart */}
+
           <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800">
-            {/* Title and Note */}
             <h4 className="font-semibold text-slate-600 dark:text-slate-400 text-sm sm:text-base">{monthlyVariableTitle}</h4>
             <p className="text-xs text-slate-500 dark:text-slate-500 -mt-1 mb-2">{monthlyVariableNote}</p>
 
-            {/* Variable Selector (Remains the same) */}
-            <div className="mt-4 mb-4 border-t border-b border-slate-200 dark:border-slate-700 py-3">
-              <h5 className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">Selecione variáveis para exibir:</h5>
-              <div className="max-h-32 overflow-y-auto pr-2 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-x-4 gap-y-1.5">
-                {variableKeys.map((key) => (
-                  <label key={key} className="flex items-center gap-1.5 cursor-pointer group">
-                    <input
-                      type="checkbox"
-                      checked={!!selectedVariables[key]}
-                      onChange={() => toggleVariable(key)}
-                      className="h-3.5 w-3.5 rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sky-600 focus:ring-sky-500 focus:ring-offset-white dark:focus:ring-offset-slate-900"
-                    />
-                    <span className={'text-xs text-slate-700 dark:text-slate-300 group-hover:text-slate-900 dark:group-hover:text-slate-100 transition-colors'}>{variableLabels[key]}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
 
-            {/* Line Chart Container */}
+            
+
             <div>
-              {monthlyVariableData.length > 0 && Object.keys(selectedVariables).some(k => selectedVariables[k]) ? (
-                <ResponsiveContainer width="100%" height={350}>
-                  <LineChart
-                    data={monthlyVariableData} // *** FIX: Use correct data ***
-                    margin={{ top: 10, right: 20, left: -10, bottom: 20 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke={colors.border} />
-                    <XAxis
-                      dataKey="month"
-                      tick={{ fill: colors.muted, fontSize: 10 }}
-                      stroke={colors.foreground}
-                      axisLine={{ stroke: colors.border }}
-                      tickLine={{ stroke: colors.border }}
-                    />
-                    <YAxis
-                       tick={{ fill: colors.muted, fontSize: 10 }}
-                       stroke={colors.foreground}
-                       axisLine={{ stroke: colors.border }}
-                       tickLine={{ stroke: colors.border }}
-                       tickFormatter={(value) => value.toLocaleString('pt-BR')}
-                    />
-                    <Tooltip
-                       cursor={{ stroke: colors.border, strokeDasharray: '3 3' }}
-                       contentStyle={{
-                         background: colors.card,
-                         border: `1px solid ${colors.border}`,
-                         borderRadius: 8,
-                         color: colors.foreground,
-                         fontSize: 12,
-                         boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)'
-                       }}
-                       labelStyle={{ color: colors.muted, fontWeight: 'bold' }}
-                       formatter={(value: number, name: string) => [value.toLocaleString('pt-BR'), variableLabels[name] ?? name]}
-                    />
-                    <Legend iconType="plainline" wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }}/>
-                    {Object.entries(selectedVariables)
-                      .filter(([key, isActive]) => isActive)
-                      .map(([key], index) => (
-                        <Line
-                          key={key}
-                          type="monotone"
-                          dataKey={key}
-                          name={key}
-                          stroke={lineColors[index % lineColors.length]}
-                          strokeWidth={2}
-                          dot={false}
-                          activeDot={{ r: 4 }}
-                        />
-                      ))}
-                  </LineChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="text-center py-10 text-slate-500 dark:text-slate-400 text-sm h-[350px] flex items-center justify-center">
-                   {Object.keys(selectedVariables).some(k => selectedVariables[k])
-                     ? 'Dados não disponíveis para a seleção atual.'
-                     : 'Selecione uma ou mais variáveis acima para visualizar a evolução.'}
-                </div>
-              )}
+            <ResponsiveContainer width="100%" height={350}>
+            <BarChart
+        data={barData}
+        layout="vertical"
+        margin={{ top: 10, right: 30, left: 80, bottom: 10 }}
+      >
+        <CartesianGrid strokeDasharray="3 3" stroke={colors.border} />
+        <XAxis type="number" stroke={colors.foreground} />
+        <YAxis
+          dataKey="label"
+          type="category"
+          stroke={colors.foreground}
+          width={180}
+        />
+        <Tooltip
+          contentStyle={{
+            backgroundColor: colors.card,
+            borderColor: colors.border,
+            color: colors.foreground,
+          }}
+        />
+        <Bar dataKey="value" fill={colors.accent} radius={[4, 4, 4, 4]} />
+      </BarChart>
+            </ResponsiveContainer>
             </div>
-          </div>
+            </div>
 
         </section>
       </main>
 
-      {/* Footer */}
       <footer className="text-center py-6 text-sm text-slate-500 dark:text-slate-400 border-t border-slate-200 dark:border-slate-800" id="docs">
         Desenvolvido para o TCC — Métrica DES. Dados provenientes do endpoint de agregados (produção).
       </footer>
