@@ -547,26 +547,38 @@ export default function Page() {
           <label className="block text-sm font-medium mb-2">Idade</label>
           <div className="flex flex-wrap gap-2">
             {ageLabels.map((label) => (
-              <button
+            <button
                 key={label}
                 onClick={() => handleSelectAge(label)}
                 type="button"
-                className={`px-3 py-1.5 rounded-full text-xs sm:text-sm border transition ${selectedAgeRange === label ? 'bg-sky-600 text-white border-sky-600 shadow-sm' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'}`}>
-                {label}
-              </button>
+                className={`px-3 py-1.5 rounded-full text-xs sm:text-sm border transition ${
+                selectedAgeRange === label
+                    ? 'bg-sky-600 text-white border-sky-600 shadow-sm'
+                    : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+                }`}
+            >
+                {label === "Outros" ? "Não Identificado" : label}
+            </button>
             ))}
+
           </div>
           <label className="block text-sm font-medium mt-4 mb-2">Gênero</label>
           <div className="flex gap-2 flex-wrap">
             {genderLabels.map((label) => (
-              <button
+            <button
                 key={label}
                 onClick={() => handleSelectGender(label)}
-                className={`px-3 py-1.5 rounded-full text-xs sm:text-sm border transition ${selectedGender === label ? 'bg-sky-600 text-white border-sky-600 shadow-sm' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-                type="button">
-                {label === 'Todos' ? 'Todos' : label}
-              </button>
+                className={`px-3 py-1.5 rounded-full text-xs sm:text-sm border transition ${
+                selectedGender === label
+                    ? 'bg-sky-600 text-white border-sky-600 shadow-sm'
+                    : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+                }`}
+                type="button"
+            >
+                {label === "Outros" ? "Não Identificado" : label}
+            </button>
             ))}
+
           </div>
         </aside>
 
