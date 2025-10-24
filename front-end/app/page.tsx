@@ -106,14 +106,14 @@ function NavBar() {
           <div className="flex items-center gap-5">
             <Link href="#" className="pl-2 flex items-center gap-2">
               <Image
-              src="/desicon.svg" 
-              alt="DES Logo"
-              width={48}
-              height={48}
-              className="inline-block align-middle rounded-md"
+                src="/desicon.svg" // Assuming desicon.svg is in the public folder
+                alt="DES Logo"
+                width={48}
+                height={48}
+                className="inline-block align-middle rounded-md"
               />
               <span className="font-semibold text-lg tracking-tight text-slate-900 dark:text-slate-100">
-              DES
+                DES
               </span>
             </Link>
             <nav className="hidden md:flex items-center gap-5 text-sm text-slate-600 dark:text-slate-400">
@@ -123,6 +123,15 @@ function NavBar() {
             </nav>
           </div>
           <div className="flex items-center gap-2">
+            <div className="relative hidden sm:block">
+              <Link
+                href="docs"
+                className="hidden sm:inline-flex items-center px-3 py-1.5 rounded-lg text-sm text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition"
+                title="Ir para documentação"
+              >
+                Documentação
+              </Link>
+            </div>
 
             <button
               onClick={toggleTheme}
@@ -166,10 +175,10 @@ const lineColors = [
 ];
 
 const defaultKpiData = {
-    count: 0,
-    avg_des: 0,
-    percent_gt_800: 0,
-    des_range_counts: {},
+  count: 0,
+  avg_des: 0,
+  percent_gt_800: 0,
+  des_range_counts: {},
 };
 
 export default function Page() {
@@ -202,7 +211,9 @@ export default function Page() {
           console.error('Failed to load aggregates:', err)
         })
     }, [])
-
+    // Use the local file path for testing if needed, otherwise use the API endpoint
+    // fetch('/aggregates.json') // For local testing
+    
   const [selectedVariables, setSelectedVariables] = useState<Record<string, boolean>>(() => ({
     NomeDeclaradoOuSugeridoPeloAutor: true,
     IdadeDeclaradaOuInferidaDoAutor: true,
@@ -211,12 +222,12 @@ export default function Page() {
     ExposicaoDeRelacionamentosPessoaisPeloAutor: true,
     IndicadoresDeRendaPropriaMencionadosPeloAutor: true,
     ...Object.fromEntries(variableKeys.filter(k => ![
-        'NomeDeclaradoOuSugeridoPeloAutor',
-        'IdadeDeclaradaOuInferidaDoAutor',
-        'MencaoDoAutorADadosBancarios',
-        'OpinioesPoliticasExpressasPeloAutor',
-        'ExposicaoDeRelacionamentosPessoaisPeloAutor',
-        'IndicadoresDeRendaPropriaMencionadosPeloAutor'
+      'NomeDeclaradoOuSugeridoPeloAutor',
+      'IdadeDeclaradaOuInferidaDoAutor',
+      'MencaoDoAutorADadosBancarios',
+      'OpinioesPoliticasExpressasPeloAutor',
+      'ExposicaoDeRelacionamentosPessoaisPeloAutor',
+      'IndicadoresDeRendaPropriaMencionadosPeloAutor'
     ].includes(k)).map(k => [k, false]))
   }));
 
@@ -328,7 +339,7 @@ export default function Page() {
       return { distData: data, distTitle: title };
     }
 
-     return { distData: [], distTitle: 'Distribuição de DES' };
+    return { distData: [], distTitle: 'Distribuição de DES' };
   }, [kpiData, isAgeFiltered, isGenderFiltered, selectedAgeRange, selectedGender]);
 
 
@@ -339,54 +350,54 @@ export default function Page() {
     let note = "Exibindo dados gerais.";
 
     try {
+      if (isAgeFiltered && isGenderFiltered) {
+        dataToProcess = aggregates.monthly_by_age_and_gender;
+        note = `Exibindo dados por Idade (${selectedAgeRange}) e Gênero (${selectedGender}).`;
+      } else if (isAgeFiltered) {
+        dataToProcess = aggregates.monthly_by_age;
+        note = `Exibindo dados por Idade (${selectedAgeRange}).`;
+      } else if (isGenderFiltered) {
+        dataToProcess = aggregates.monthly_by_gender;
+        note = `Exibindo dados por Gênero (${selectedGender}).`;
+      } else {
+        dataToProcess = aggregates.monthly_general;
+      }
+
+      if (!dataToProcess) {
+        console.warn("Source data for series is null/undefined");
+        return { series: [], seriesNote: 'Dados não disponíveis para a seleção.' };
+      }
+
+      const months = Object.keys(dataToProcess).sort();
+      const processedSeries = months.map(m => {
+        let monthData = dataToProcess[m];
+        let avg_des = 0;
+
         if (isAgeFiltered && isGenderFiltered) {
-            dataToProcess = aggregates.monthly_by_age_and_gender;
-            note = `Exibindo dados por Idade (${selectedAgeRange}) e Gênero (${selectedGender}).`;
+          avg_des = monthData?.[selectedAgeRange]?.[selectedGender]?.avg_des ?? 0;
         } else if (isAgeFiltered) {
-            dataToProcess = aggregates.monthly_by_age;
-            note = `Exibindo dados por Idade (${selectedAgeRange}).`;
+          avg_des = monthData?.[selectedAgeRange]?.avg_des ?? 0;
         } else if (isGenderFiltered) {
-            dataToProcess = aggregates.monthly_by_gender;
-            note = `Exibindo dados por Gênero (${selectedGender}).`;
+          avg_des = monthData?.[selectedGender]?.avg_des ?? 0;
         } else {
-            dataToProcess = aggregates.monthly_general;
+          avg_des = monthData?.avg_des ?? 0;
         }
 
-        if (!dataToProcess) {
-             console.warn("Source data for series is null/undefined");
-             return { series: [], seriesNote: 'Dados não disponíveis para a seleção.' };
-        }
+        return {
+          month: m,
+          value: Math.round(avg_des)
+        };
+      }).filter(d => d.value > 0);
 
-        const months = Object.keys(dataToProcess).sort();
-        const processedSeries = months.map(m => {
-            let monthData = dataToProcess[m];
-            let avg_des = 0;
+      if (processedSeries.length === 0 && (isAgeFiltered || isGenderFiltered)) {
+        note = `Dados não disponíveis para a combinação ${selectedAgeRange} / ${selectedGender}.`;
+      }
 
-            if (isAgeFiltered && isGenderFiltered) {
-                avg_des = monthData?.[selectedAgeRange]?.[selectedGender]?.avg_des ?? 0;
-            } else if (isAgeFiltered) {
-                avg_des = monthData?.[selectedAgeRange]?.avg_des ?? 0;
-            } else if (isGenderFiltered) {
-                avg_des = monthData?.[selectedGender]?.avg_des ?? 0;
-            } else {
-                avg_des = monthData?.avg_des ?? 0;
-            }
-
-            return {
-                month: m,
-                value: Math.round(avg_des)
-            };
-        }).filter(d => d.value > 0);
-
-        if (processedSeries.length === 0 && (isAgeFiltered || isGenderFiltered)) {
-             note = `Dados não disponíveis para a combinação ${selectedAgeRange} / ${selectedGender}.`;
-        }
-
-        return { series: processedSeries, seriesNote: note };
+      return { series: processedSeries, seriesNote: note };
 
     } catch (e) {
-        console.error("Error processing time series data:", e);
-        return { series: [], seriesNote: 'Erro ao processar dados.' };
+      console.error("Error processing time series data:", e);
+      return { series: [], seriesNote: 'Erro ao processar dados.' };
     }
   }, [aggregates, selectedAgeRange, selectedGender, isAgeFiltered, isGenderFiltered]);
 
@@ -414,24 +425,40 @@ export default function Page() {
         } else {
             monthlySource = aggregates?.monthly_field_counts;
         }
+      // Determine the correct data source based on filters
+      if (isAgeFiltered && isGenderFiltered) {
+        monthlySource = aggregates?.monthly_by_age_and_gender_field_counts;
+        title = `Evolução Mensal (${selectedAgeRange} & ${selectedGender})`;
+        note = `Contagem mensal para Idade (${selectedAgeRange}) e Gênero (${selectedGender}).`;
+      } else if (isAgeFiltered) {
+        monthlySource = aggregates?.monthly_by_age_field_counts;
+        title = `Evolução Mensal (${selectedAgeRange})`;
+        note = `Contagem mensal para Idade (${selectedAgeRange}).`;
+      } else if (isGenderFiltered) {
+        monthlySource = aggregates?.monthly_by_gender_field_counts;
+        title = `Evolução Mensal (${selectedGender})`;
+        note = `Contagem mensal para Gênero (${selectedGender}).`;
+      } else {
+        monthlySource = aggregates?.monthly_field_counts;
+      }
 
-        if (!monthlySource) {
-             return { monthlyVariableData: [], monthlyVariableTitle: title, monthlyVariableNote: 'Dados não disponíveis para a seleção.' };
-        }
+      if (!monthlySource) {
+        return { monthlyVariableData: [], monthlyVariableTitle: title, monthlyVariableNote: 'Dados não disponíveis para a seleção.' };
+      }
 
-        const months = Object.keys(monthlySource).sort();
-        const activeVariableKeys = Object.entries(selectedVariables)
-                                    .filter(([key, isActive]) => isActive)
-                                    .map(([key]) => key);
+      const months = Object.keys(monthlySource).sort();
+      const activeVariableKeys = Object.entries(selectedVariables)
+        .filter(([key, isActive]) => isActive)
+        .map(([key]) => key);
 
-        if (activeVariableKeys.length === 0) {
-            return { monthlyVariableData: [], monthlyVariableTitle: title, monthlyVariableNote: 'Selecione pelo menos uma variável para exibir.' };
-        }
+      if (activeVariableKeys.length === 0) {
+        return { monthlyVariableData: [], monthlyVariableTitle: title, monthlyVariableNote: 'Selecione pelo menos uma variável para exibir.' };
+      }
 
 
-        const chartData = months.map(month => {
-            const monthEntry: { month: string; [key: string]: number | string } = { month };
-            let monthDataForFilters = monthlySource[month];
+      const chartData = months.map(month => {
+        const monthEntry: { month: string;[key: string]: number | string } = { month };
+        let monthDataForFilters = monthlySource[month];
 
             if (isAgeFiltered && isGenderFiltered) {
                  monthDataForFilters = monthDataForFilters?.[selectedAgeRange]?.[selectedGender] ?? {};
@@ -440,16 +467,29 @@ export default function Page() {
             } else if (isGenderFiltered) {
                  monthDataForFilters = monthDataForFilters?.[selectedGender] ?? {};
             }
+        // Drill down if filters are applied
+        if (isAgeFiltered && isGenderFiltered) {
+          monthDataForFilters = monthDataForFilters?.[selectedAgeRange]?.[selectedGender] ?? {};
+        } else if (isAgeFiltered) {
+          monthDataForFilters = monthDataForFilters?.[selectedAgeRange] ?? {};
+        } else if (isGenderFiltered) {
+          monthDataForFilters = monthDataForFilters?.[selectedGender] ?? {};
+        }
 
-             monthDataForFilters = monthDataForFilters ?? {};
+        // Ensure monthDataForFilters is an object before proceeding
+        monthDataForFilters = monthDataForFilters ?? {};
 
 
             activeVariableKeys.forEach(key => {
                 monthEntry[key] = monthDataForFilters[key] ?? 0; 
             });
-
-            return monthEntry;
+        // Populate counts for active variables
+        activeVariableKeys.forEach(key => {
+          monthEntry[key] = monthDataForFilters[key] ?? 0; // Use count or 0 if missing
         });
+
+        return monthEntry;
+      });
 
         const hasDataPoints = chartData.some(entry => activeVariableKeys.some(key => (entry[key] as number) > 0));
         if (!hasDataPoints && (isAgeFiltered || isGenderFiltered)) {
@@ -457,11 +497,11 @@ export default function Page() {
         }
 
 
-        return { monthlyVariableData: chartData, monthlyVariableTitle: title, monthlyVariableNote: note };
+      return { monthlyVariableData: chartData, monthlyVariableTitle: title, monthlyVariableNote: note };
 
     } catch (e) {
-        console.error("Error processing monthly variable count data:", e);
-         return { monthlyVariableData: [], monthlyVariableTitle: title, monthlyVariableNote: 'Erro ao processar dados.' };
+      console.error("Error processing monthly variable count data:", e);
+      return { monthlyVariableData: [], monthlyVariableTitle: title, monthlyVariableNote: 'Erro ao processar dados.' };
     }
 
   }, [aggregates, selectedAgeRange, selectedGender, isAgeFiltered, isGenderFiltered, selectedVariables]);
@@ -499,9 +539,9 @@ export default function Page() {
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-300">Filtros</h3>
             {(isAgeFiltered || isGenderFiltered) && (
-                 <button onClick={clearFilters} className="text-sm text-sky-600 dark:text-sky-400 hover:underline" type="button">
-                    Limpar
-                 </button>
+              <button onClick={clearFilters} className="text-sm text-sky-600 dark:text-sky-400 hover:underline" type="button">
+                Limpar
+              </button>
             )}
           </div>
           <label className="block text-sm font-medium mb-2">Idade</label>
@@ -511,7 +551,7 @@ export default function Page() {
                 key={label}
                 onClick={() => handleSelectAge(label)}
                 type="button"
-                className={`px-3 py-1.5 rounded-full text-xs sm:text-sm border transition ${ selectedAgeRange === label ? 'bg-sky-600 text-white border-sky-600 shadow-sm' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700' }`}>
+                className={`px-3 py-1.5 rounded-full text-xs sm:text-sm border transition ${selectedAgeRange === label ? 'bg-sky-600 text-white border-sky-600 shadow-sm' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'}`}>
                 {label}
               </button>
             ))}
@@ -522,7 +562,7 @@ export default function Page() {
               <button
                 key={label}
                 onClick={() => handleSelectGender(label)}
-                className={`px-3 py-1.5 rounded-full text-xs sm:text-sm border transition ${ selectedGender === label ? 'bg-sky-600 text-white border-sky-600 shadow-sm' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700' }`}
+                className={`px-3 py-1.5 rounded-full text-xs sm:text-sm border transition ${selectedGender === label ? 'bg-sky-600 text-white border-sky-600 shadow-sm' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
                 type="button">
                 {label === 'Todos' ? 'Todos' : label}
               </button>
@@ -562,7 +602,7 @@ export default function Page() {
                 </button>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-500 -mt-1 mb-2">
-                 {seriesNote}
+                {seriesNote}
               </p>
               <ResponsiveContainer width="100%" height={300}>
                 <LineChart data={series} margin={{ top: 8, right: 8, left: -10, bottom: 8 }}>
@@ -628,7 +668,7 @@ export default function Page() {
                     }}
                     labelStyle={{ color: colors.muted }}
                     itemStyle={{ color: colors.accent }}
-                     formatter={(value: number) => [value.toLocaleString('pt-BR'), 'Contagem']}
+                    formatter={(value: number) => [value.toLocaleString('pt-BR'), 'Contagem']}
                   />
                   <Bar dataKey="value" fill={colors.accent} radius={[4, 4, 0, 0]} name="Contagem" />
                 </BarChart>
