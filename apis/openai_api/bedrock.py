@@ -2,7 +2,6 @@ import os
 import logging
 import json
 import time
-import tempfile
 import re
 import argparse
 from datetime import datetime, timezone
@@ -17,7 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-# ENVIRONMENT VARIABLES & GLOBALS
+# ENVIRONMENT VARIABLES
 
 
 USER = os.getenv("MONGO_USER")
@@ -29,26 +28,25 @@ DB_NAME = os.getenv("MONGO_DB")
 COL_DATA = os.getenv("MONGO_COLLECTION_DATA")
 COL_REPORT = os.getenv("MONGO_COLLECTION_REPORTS_BEDROCK")
 
-# --- AWS / Bedrock ---
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
-BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-3-haiku-20240307-v1:0")
-BEDROCK_S3_INPUT = os.getenv("BEDROCK_S3_INPUT")   # ex: s3://meu-bucket/bedrock/input/
-BEDROCK_S3_OUTPUT = os.getenv("BEDROCK_S3_OUTPUT") # ex: s3://meu-bucket/bedrock/output/
-BEDROCK_ROLE_ARN = os.getenv("BEDROCK_ROLE_ARN")   # IAM role para Batch
-BEDROCK_BATCH_MIN_RECORDS = int(os.getenv("BEDROCK_BATCH_MIN_RECORDS", "100"))
+
+# Use o FOUNDATION MODEL (sem 'us.'/'global.')
+# Haiku 3:
+BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "anthropic.claude-3-haiku-20240307-v1:0")
 
 TLS_CA_FILE = os.getenv("MONGO_TLS_CA_FILE", "rds-combined-ca-bundle.pem")
 
-DEFAULT_BATCH_SIZE = int(os.getenv("BATCH_SIZE", 500))  # linhas por arquivo .jsonl para Batch
+# Quantos docs buscar por iteração (não é batch, só paginação local)
+DEFAULT_PAGE_SIZE = int(os.getenv("PAGE_SIZE", 200))
 
-# Valida envs essenciais
+# Valida envs essenciais (Mongo)
 if not all([USER, PASS, HOST, PORT, AUTH_DB, DB_NAME, COL_DATA, COL_REPORT]):
     raise RuntimeError("Verifique as variáveis de ambiente do Mongo no .env")
 
-if not all([BEDROCK_S3_INPUT, BEDROCK_S3_OUTPUT, BEDROCK_ROLE_ARN]):
-    raise RuntimeError("Defina BEDROCK_S3_INPUT, BEDROCK_S3_OUTPUT e BEDROCK_ROLE_ARN no .env")
 
-# MongoDB client
+# MongoDB
+
+
 uri = (
     f"mongodb://{HOST}:{PORT}"
     f"/?tls=true&tlsCAFile={TLS_CA_FILE}&replicaSet=rs0&readPreference=secondaryPreferred"
@@ -72,13 +70,13 @@ def ensure_indexes():
 ensure_indexes()
 
 
-# AWS clients
-
-bedrock_ctl = boto3.client("bedrock", region_name=AWS_REGION)
-s3 = boto3.client("s3", region_name=AWS_REGION)
+# AWS Bedrock Runtime
 
 
-# QWEN3 / Prompt helpers
+bedrock_rt = boto3.client("bedrock-runtime", region_name=AWS_REGION)
+
+
+# Prompt helpers
 
 
 CAMPO_LIST = (
@@ -131,7 +129,7 @@ def choose_posts(posts: List[Dict], max_posts: int = 80, max_chars: int = 8000) 
         if not ts:
             return datetime.min.replace(tzinfo=timezone.utc)
         try:
-            if ts.endswith("Z"):
+            if isinstance(ts, str) and ts.endswith("Z"):
                 ts = ts.replace("Z", "+00:00")
             return datetime.fromisoformat(ts)
         except Exception:
@@ -158,10 +156,10 @@ def extract_json(text: str) -> Optional[Dict]:
     try:
         return json.loads(text)
     except Exception:
-        m = re.search(r"(\{.*\})", text, flags=re.S)
-        if m:
+        m2 = re.search(r"(\{.*\})", text, flags=re.S)
+        if m2:
             try:
-                return json.loads(m.group(1))
+                return json.loads(m2.group(1))
             except Exception:
                 pass
     return None
@@ -174,6 +172,7 @@ def _normalize_response_body(raw):
         try:
             parsed = json.loads(raw_str)
             if isinstance(parsed, str):
+                # caso venha string JSON dentro de string
                 try:
                     parsed2 = json.loads(parsed)
                     return parsed2
@@ -186,16 +185,27 @@ def _normalize_response_body(raw):
 
 def extract_text_from_response(resposta_body):
     """
-    Aceita a estrutura de saída do Bedrock (modelOutput do Batch), que por sua vez
-    é idêntica ao corpo retornado pelo InvokeModel do provedor.
-    Tenta extrair texto de formatos OpenAI-like (choices[0].message.content) ou
-    Titan-like (results[0].outputText). Fallback: serializa o corpo inteiro.
+    Suporta formatos:
+      - Anthropic (messages API via Bedrock): {"content":[{"type":"text","text":"..."}], ...}
+      - OpenAI-like: {"choices":[{"message":{"content":"..."}}]}
+      - Titan-like: {"results":[{"outputText":"..."}]}
+    Fallback: serializa o corpo.
     """
     try:
         body = _normalize_response_body(resposta_body)
         if isinstance(body, str):
             return body
+
         if isinstance(body, dict):
+            # Anthropic messages
+            if "content" in body and isinstance(body["content"], list):
+                texts = []
+                for item in body["content"]:
+                    if isinstance(item, dict) and item.get("type") == "text" and "text" in item:
+                        texts.append(str(item["text"]))
+                if texts:
+                    return "\n".join(texts).strip()
+
             # OpenAI-like
             if "choices" in body and isinstance(body["choices"], list) and body["choices"]:
                 choice = body["choices"][0]
@@ -206,75 +216,45 @@ def extract_text_from_response(resposta_body):
                         return str(choice["text"]).strip()
                     if "delta" in choice:
                         return json.dumps(choice["delta"], ensure_ascii=False)
+
             # Titan-like
             if "results" in body and isinstance(body["results"], list) and body["results"]:
                 first = body["results"][0]
                 if isinstance(first, dict) and "outputText" in first:
                     return str(first["outputText"]).strip()
+
             # Erro padronizado?
             if "error" in body:
                 try:
                     return "__API_ERROR__ " + json.dumps(body["error"], ensure_ascii=False)
                 except Exception:
                     return "__API_ERROR__ " + str(body["error"])
+
             # Outros campos comuns
             for possible in ("output", "data", "result"):
                 if possible in body:
                     return json.dumps(body[possible], ensure_ascii=False)
+
             return json.dumps(body, ensure_ascii=False)
+
         return str(body)
     except Exception as e:
         logging.exception("Erro extraindo texto da resposta")
         return f"__PARSE_EXCEPTION__ {e} | raw={repr(resposta_body)}"
 
 
-# S3 helpers
+# Model input builders
 
-
-def _parse_s3_uri(s3_uri: str):
-    if not s3_uri.startswith("s3://"):
-        raise ValueError(f"URI inválida: {s3_uri}")
-    path = s3_uri[5:]
-    bucket, _, prefix = path.partition("/")
-    return bucket, prefix
-
-def s3_upload_text(s3_uri: str, text: str):
-    bucket, prefix = _parse_s3_uri(s3_uri)
-    if not prefix or prefix.endswith("/"):
-        raise ValueError("Forneça uma chave completa (incluindo nome do arquivo) para upload no S3.")
-    s3.put_object(Bucket=bucket, Key=prefix, Body=text.encode("utf-8"))
-
-def s3_list_prefix(s3_uri_prefix: str):
-    bucket, prefix = _parse_s3_uri(s3_uri_prefix)
-    paginator = s3.get_paginator("list_objects_v2")
-    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
-        for obj in page.get("Contents", []):
-            yield bucket, obj["Key"]
-
-def s3_iter_lines(bucket: str, key: str):
-    obj = s3.get_object(Bucket=bucket, Key=key)
-    body = obj["Body"]
-    for raw in body.iter_lines():
-        if not raw:
-            continue
-        if isinstance(raw, (bytes, bytearray)):
-            line = raw.decode("utf-8")
-        else:
-            line = str(raw)
-        yield line.strip()
-
-
-# Batch line builder (Bedrock)
 
 def build_model_input_for_bedrock(prompt: str) -> Dict:
     """
-    Monta o 'modelInput' no schema esperado pelo provider.
-    - Anthropic (profiles que começam com 'us.anthropic.' ou 'global.anthropic.'):
-      requer content como lista de blocos [{"type":"text","text": "..."}] e aceita 'system' top-level.
-    - Demais (Meta Llama, Qwen etc.): usa formato OpenAI-like que você já está usando.
+    Monta o 'modelInput' conforme o provedor.
+    - Anthropic (IDs que começam com 'anthropic.'): exige 'anthropic_version' e content por blocos.
+    - Outros (Qwen/Llama…): OpenAI-like (messages).
     """
-    if BEDROCK_MODEL_ID.startswith(("us.anthropic.", "global.anthropic.")):
+    if BEDROCK_MODEL_ID.startswith("anthropic."):
         return {
+            "anthropic_version": "bedrock-2023-05-31",
             "system": "Analista de perfis de BlueSky",
             "messages": [
                 {"role": "user", "content": [{"type": "text", "text": prompt}]}
@@ -284,7 +264,6 @@ def build_model_input_for_bedrock(prompt: str) -> Dict:
             "top_p": 0.9
         }
     else:
-        # OpenAI-like (Llama, Qwen…)
         return {
             "messages": [
                 {"role": "system", "content": "Analista de perfis de BlueSky"},
@@ -295,123 +274,111 @@ def build_model_input_for_bedrock(prompt: str) -> Dict:
             "top_p": 0.9
         }
 
-
-def qwen_model_input_from_doc(doc: Dict) -> Optional[Dict]:
+def model_input_from_doc(doc: Dict) -> Optional[Dict]:
     """
-    Constrói o 'modelInput' para o Bedrock (InvokeModel) no formato OpenAI-like
-    aceito pelos modelos Qwen3 no Bedrock (messages + max_tokens/temperature).
+    Constrói o corpo do invoke_model a partir do doc (seleção de posts + prompt).
+    Retorna dict com 'recordId' e 'modelInput' ou None.
     """
     source_id = str(doc["_id"])
     tweets_pt = choose_posts(doc.get("posts", []))
     if not tweets_pt:
         return None
-
     tweets_json = json.dumps(tweets_pt, ensure_ascii=False)
     prompt = build_prompt(tweets_json)
-
-    # messages: system + user
     body = build_model_input_for_bedrock(prompt)
     return {"recordId": source_id, "modelInput": body}
 
-def write_jsonl_records(records: List[Dict]) -> str:
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl", mode="w", encoding="utf-8")
+
+# Persistência do resultado
+
+
+def _save_report_direct(source_id: str, model_output_any):
+    relatorio_raw = extract_text_from_response(model_output_any)
+    relatorio_dict = extract_json(relatorio_raw)
+
+    doc_to_insert = {
+        "source_id": source_id,
+        "report": relatorio_dict if relatorio_dict is not None else relatorio_raw,
+        "parse_ok": relatorio_dict is not None,
+        "analyzed_at": datetime.now(timezone.utc),
+    }
+    res_upsert = reports_coll.update_one(
+        {"source_id": source_id},
+        {"$setOnInsert": doc_to_insert},
+        upsert=True
+    )
+    inserted_id = (
+        res_upsert.upserted_id
+        if res_upsert.upserted_id is not None
+        else reports_coll.find_one({"source_id": source_id}, {"_id": 1})["_id"]
+    )
+
+    data_coll.update_one(
+        {"_id": ObjectId(source_id), "report_id_bedrock": {"$exists": False}},
+        {"$set": {"report_id_bedrock": inserted_id}}
+    )
+
+
+# Execução ON-DEMAND (invoke_model)
+
+
+def invoke_once(model_id: str, body: Dict) -> Dict:
+    """
+    Chama o Bedrock Runtime e retorna o JSON já parseado.
+    """
+    resp = bedrock_rt.invoke_model(
+        modelId=model_id,
+        body=json.dumps(body).encode("utf-8"),
+        contentType="application/json",
+        accept="application/json",
+    )
+    raw = resp.get("body").read()
+    return _normalize_response_body(raw)
+
+def execute_on_demand(records: List[Dict]):
+    print(f"[INFO] Executando ON-DEMAND (invoke_model) para {len(records)} registros...")
+    ok, fail = 0, 0
+    t0 = time.perf_counter()
+
     for rec in records:
-        tmp.write(json.dumps(rec, ensure_ascii=False) + "\n")
-    tmp.close()
-    return tmp.name
+        try:
+            parsed = invoke_once(BEDROCK_MODEL_ID, rec["modelInput"])
+            _save_report_direct(rec["recordId"], parsed)
+            ok += 1
+            if ok % 50 == 0:
+                print(f"[OK] {ok} processados...")
+        except ClientError as e:
+            fail += 1
+            print(f"[ERRO] invoke_model falhou para {rec['recordId']}: {e}")
+
+    dt = time.perf_counter() - t0
+    print(f"[INFO] ON-DEMAND finalizado: {ok} ok / {fail} falhas em {dt:.1f}s")
 
 
-# Processamento de resultados (S3 -> Mongo)
-
-
-def processar_resultados_desde_output_prefix(output_prefix_uri: str):
-    """
-    Lê todos os .jsonl sob o prefixo de saída do job e insere/atualiza no Mongo.
-    Espera o formato:
-      { "recordId": "id", "modelInput": {...}, "modelOutput": {...} }
-    ou com "error" no lugar de "modelOutput".
-    """
-    processed = 0
-    for bucket, key in s3_list_prefix(output_prefix_uri):
-        if not key.endswith(".jsonl") or key.endswith("manifest.json.out"):
-            continue
-        for line in s3_iter_lines(bucket, key):
-            try:
-                registro = json.loads(line)
-            except Exception:
-                print(f"[WARN] Linha inválida no output: {line[:200]}...")
-                continue
-
-            source_id = registro.get("recordId")
-            if not source_id:
-                # fallback: tenta encontrar no input
-                source_id = (registro.get("modelInput") or {}).get("custom_id")
-
-            if "error" in registro:
-                logging.error("Erro no registro %s: %s", source_id, registro["error"])
-                relatorio_raw = "__API_ERROR__ " + json.dumps(registro["error"], ensure_ascii=False)
-            else:
-                model_output = registro.get("modelOutput", {})
-                relatorio_raw = extract_text_from_response(model_output)
-
-            relatorio_dict = extract_json(relatorio_raw)
-
-            try:
-                doc_to_insert = {
-                    "source_id": source_id,
-                    "report": relatorio_dict if relatorio_dict is not None else relatorio_raw,
-                    "parse_ok": relatorio_dict is not None,
-                    "analyzed_at": datetime.now(timezone.utc),
-                }
-                res_upsert = reports_coll.update_one(
-                    {"source_id": source_id},
-                    {"$setOnInsert": doc_to_insert},
-                    upsert=True
-                )
-                inserted_id = (
-                    res_upsert.upserted_id
-                    if res_upsert.upserted_id is not None
-                    else reports_coll.find_one({"source_id": source_id}, {"_id": 1})["_id"]
-                )
-
-                data_coll.update_one(
-                    {"_id": ObjectId(source_id), "report_id_bedrock": {"$exists": False}},
-                    {"$set": {"report_id_bedrock": inserted_id}}
-                )
-
-                processed += 1
-                if processed % 50 == 0:
-                    print(f"[OK] Processados {processed} reports...")
-            except Exception as e:
-                print(f"[ERRO] Falha ao salvar relatório/atualizar doc {source_id}: {e}")
-
-    print(f"[INFO] Total processado: {processed}")
-
-
-# Pipeline principal (Bedrock Batch)
+# Pipeline principal
 
 
 def processar_bsky_docs(max_docs: Optional[int] = None):
     """
-    Cria lotes (.jsonl) para o Amazon Bedrock Batch Inference e aguarda finalizar,
-    processando os outputs do S3. Evita cursores abertos no Mongo.
+    Busca docs pendentes e processa via invoke_model (on-demand).
     """
     filtro_base = {"significant": True, "report_id": {"$exists": True}, "report_id_bedrock": {"$exists": False}}
 
     try:
         total = data_coll.count_documents(filtro_base)
-        print(f"[INFO] Pendente em `{COL_DATA}`: {total} documentos (sem report_id)")
+        print(f"[INFO] Pendente em `{COL_DATA}`: ~{total} documentos (sem report_id_bedrock)")
     except Exception as e:
         print(f"[WARN] count_documents falhou/foi lento, seguindo sem: {e}")
+        total = None
 
-    total_enfileirados = 0
+    total_processados = 0
 
     while True:
-        restante = (max_docs - total_enfileirados) if max_docs is not None else None
+        restante = (max_docs - total_processados) if max_docs is not None else None
         if restante is not None and restante <= 0:
             break
 
-        fetch_n = min(DEFAULT_BATCH_SIZE, restante) if restante is not None else DEFAULT_BATCH_SIZE
+        fetch_n = min(DEFAULT_PAGE_SIZE, restante) if restante is not None else DEFAULT_PAGE_SIZE
         docs = list(
             data_coll.find(filtro_base, projection={"posts": 1})
                      .limit(fetch_n)
@@ -420,118 +387,44 @@ def processar_bsky_docs(max_docs: Optional[int] = None):
             break
 
         records: List[Dict] = []
-        since_batch = time.perf_counter()
-
         for doc in docs:
-            rec = qwen_model_input_from_doc(doc)
+            rec = model_input_from_doc(doc)
             if rec:
                 records.append(rec)
 
         if not records:
+            # nada selecionado (ex.: posts vazios)
+            # marcamos? não, deixamos para outra rotina decidir.
             continue
 
-        elapsed = time.perf_counter() - since_batch
-        print(f"[INFO] Fechando batch de {len(records)} reqs (acumuladas: {total_enfileirados + len(records)}) | +{elapsed:.1f}s")
+        print(f"[INFO] Rodando {len(records)} documentos (acumulado: {total_processados + len(records)})")
+        execute_on_demand(records)
+        total_processados += len(records)
 
-        # Respeita o mínimo típico de registros por job (p. ex. 100)
-        if len(records) < BEDROCK_BATCH_MIN_RECORDS:
-            print(f"[WARN] Registros no lote ({len(records)}) < mínimo recomendado ({BEDROCK_BATCH_MIN_RECORDS}). O job pode falhar por cota mínima.")
-        execute_batch(records)
+    print(f"[INFO] Finalizado. Processados: {total_processados}{'' if max_docs is None else f' / alvo {max_docs}'}")
 
-        total_enfileirados += len(records)
 
-    print(f"[INFO] Finalizado. Contas enfileiradas para análise: {total_enfileirados}{'' if max_docs is None else f' / alvo {max_docs}'}")
-
-def execute_batch(records: List[Dict]):
-    """
-    1) Escreve .jsonl local
-    2) Upload para S3 input (chave única por job)
-    3) Cria job no Bedrock
-    4) Aguarda completar
-    5) Processa resultados lendo S3 output
-    """
-    print(f"[INFO] Preparando batch com {len(records)} registros...")
-
-    # 1) arquivo .jsonl temporário
-    jsonl_path = write_jsonl_records(records)
-
-    # 2) upload para S3 input com chave única
-    ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    job_name = f"twitter-bsky-script-{ts}"
-    input_bucket, input_prefix_base = _parse_s3_uri(BEDROCK_S3_INPUT.rstrip("/") + "/")
-    input_key = f"{input_prefix_base}{job_name}/input.jsonl"
-    with open(jsonl_path, "r", encoding="utf-8") as fh:
-        s3.put_object(Bucket=input_bucket, Key=input_key, Body=fh.read().encode("utf-8"))
-    try:
-        os.unlink(jsonl_path)
-    except Exception:
-        pass
-    input_uri = f"s3://{input_bucket}/{input_key}"
-
-    # 3) define output prefix único por job
-    out_bucket, out_prefix_base = _parse_s3_uri(BEDROCK_S3_OUTPUT.rstrip("/") + "/")
-    output_prefix = f"{out_prefix_base}{job_name}/"
-    output_uri = f"s3://{out_bucket}/{output_prefix}"
-
-    print(f"[INFO] Enviando job Batch: {job_name}")
-    inputDataConfig = {"s3InputDataConfig": {"s3Uri": input_uri}}
-    outputDataConfig = {"s3OutputDataConfig": {"s3Uri": output_uri}}
-
-    try:
-        resp = bedrock_ctl.create_model_invocation_job(
-            roleArn=BEDROCK_ROLE_ARN,
-            modelId=BEDROCK_MODEL_ID,
-            jobName=job_name,
-            inputDataConfig=inputDataConfig,
-            outputDataConfig=outputDataConfig,
-        )
-    except ClientError as e:
-        raise RuntimeError(f"Falha ao criar batch no Bedrock: {e}")
-
-    job_arn = resp.get("jobArn")
-    print(f"    Job ARN: {job_arn}")
-
-    # 4) aguarda conclusão
-    wait_bedrock_job(job_arn, poll_seconds=60)
-
-    # 5) processa resultados
-    processar_resultados_desde_output_prefix(output_uri)
-
-def wait_bedrock_job(job_identifier: str, poll_seconds: int = 60):
-    print(f"[INFO] Aguardando conclusão do job {job_identifier}...")
-    last_status = None
-    while True:
-        info = bedrock_ctl.get_model_invocation_job(jobIdentifier=job_identifier)
-        status = info.get("status")
-        if status != last_status:
-            counts = info.get("validationMetrics") or {}
-            print(f"    status: {status} | info: {counts}")
-            last_status = status
-        if status in {"Completed", "Failed", "Expired", "Stopped"}:
-            if status != "Completed":
-                print(f"[ERRO] Job terminou com status {status}")
-            return info
-        time.sleep(poll_seconds)
+# CLI
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Processa contas e gera relatórios via Amazon Bedrock Batch (Qwen3-32B).")
+    parser = argparse.ArgumentParser(description="Processa contas e gera relatórios via Amazon Bedrock Runtime (Claude 3 Haiku on-demand).")
     parser.add_argument("-n", "--num", type=int, default=None,
                         help="Número MÁXIMO de contas a analisar (default: ilimitado)")
-    parser.add_argument("--batch-size", type=int, default=None,
-                        help="Sobrescreve o batch size (linhas por arquivo .jsonl)")
+    parser.add_argument("--page-size", type=int, default=None,
+                        help="Sobrescreve o page size (docs por iteração)")
     args = parser.parse_args()
 
-    global DEFAULT_BATCH_SIZE
-    if args.batch_size is not None and args.batch_size > 0:
-        DEFAULT_BATCH_SIZE = args.batch_size
-        print(f"[INFO] Batch size sobrescrito para {DEFAULT_BATCH_SIZE}")
+    global DEFAULT_PAGE_SIZE
+    if args.page_size is not None and args.page_size > 0:
+        DEFAULT_PAGE_SIZE = args.page_size
+        print(f"[INFO] Page size sobrescrito para {DEFAULT_PAGE_SIZE}")
 
     if args.num is not None and args.num <= 0:
         print("[INFO] Nada a fazer: --num <= 0")
         return
 
-    print(f"[INFO] Iniciando pipeline (Bedrock/Qwen3-32B). Limite de contas: {args.num if args.num is not None else 'ilimitado'}")
+    print(f"[INFO] Iniciando pipeline ON-DEMAND (Claude 3 Haiku). Limite de contas: {args.num if args.num is not None else 'ilimitado'}")
     processar_bsky_docs(max_docs=args.num)
 
 if __name__ == "__main__":
