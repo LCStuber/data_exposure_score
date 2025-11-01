@@ -32,7 +32,7 @@ AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 
 # Use o FOUNDATION MODEL (sem 'us.'/'global.')
 # Haiku 3:
-BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "anthropic.claude-3-haiku-20240307-v1:0")
+BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "meta.llama3-2-90b-instruct-v1:0")
 
 TLS_CA_FILE = os.getenv("MONGO_TLS_CA_FILE", "rds-combined-ca-bundle.pem")
 
@@ -184,20 +184,13 @@ def _normalize_response_body(raw):
     return raw
 
 def extract_text_from_response(resposta_body):
-    """
-    Suporta formatos:
-      - Anthropic (messages API via Bedrock): {"content":[{"type":"text","text":"..."}], ...}
-      - OpenAI-like: {"choices":[{"message":{"content":"..."}}]}
-      - Titan-like: {"results":[{"outputText":"..."}]}
-    Fallback: serializa o corpo.
-    """
     try:
         body = _normalize_response_body(resposta_body)
         if isinstance(body, str):
             return body
 
         if isinstance(body, dict):
-            # Anthropic messages
+            # Anthropic messages (já ok)
             if "content" in body and isinstance(body["content"], list):
                 texts = []
                 for item in body["content"]:
@@ -206,32 +199,44 @@ def extract_text_from_response(resposta_body):
                 if texts:
                     return "\n".join(texts).strip()
 
-            # OpenAI-like
+            # OpenAI-like / Meta Llama 3.2
             if "choices" in body and isinstance(body["choices"], list) and body["choices"]:
                 choice = body["choices"][0]
-                if isinstance(choice, dict):
-                    if "message" in choice and isinstance(choice["message"], dict) and "content" in choice["message"]:
-                        return str(choice["message"]["content"]).strip()
-                    if "text" in choice:
-                        return str(choice["text"]).strip()
-                    if "delta" in choice:
-                        return json.dumps(choice["delta"], ensure_ascii=False)
+                if isinstance(choice, dict) and "message" in choice and isinstance(choice["message"], dict):
+                    msg = choice["message"]
+                    if "content" in msg:
+                        content = msg["content"]
+                        if isinstance(content, list):
+                            texts = []
+                            for c in content:
+                                if isinstance(c, dict) and c.get("type") == "text" and "text" in c:
+                                    texts.append(str(c["text"]))
+                            if texts:
+                                return "\n".join(texts).strip()
+                        # Fallback para string
+                        if isinstance(content, str):
+                            return content.strip()
+                    # Fallbacks
+                    if "text" in msg and isinstance(msg["text"], str):
+                        return msg["text"].strip()
+                if "text" in choice:
+                    return str(choice["text"]).strip()
+                if "delta" in choice:
+                    return json.dumps(choice["delta"], ensure_ascii=False)
 
-            # Titan-like
+            # Titan-like (já ok)
             if "results" in body and isinstance(body["results"], list) and body["results"]:
                 first = body["results"][0]
                 if isinstance(first, dict) and "outputText" in first:
                     return str(first["outputText"]).strip()
 
-            # Erro padronizado?
             if "error" in body:
                 try:
                     return "__API_ERROR__ " + json.dumps(body["error"], ensure_ascii=False)
                 except Exception:
                     return "__API_ERROR__ " + str(body["error"])
 
-            # Outros campos comuns
-            for possible in ("output", "data", "result"):
+            for possible in ("output", "data", "result", "generation", "output_text"):
                 if possible in body:
                     return json.dumps(body[possible], ensure_ascii=False)
 
@@ -248,9 +253,8 @@ def extract_text_from_response(resposta_body):
 
 def build_model_input_for_bedrock(prompt: str) -> Dict:
     """
-    Monta o 'modelInput' conforme o provedor.
-    - Anthropic (IDs que começam com 'anthropic.'): exige 'anthropic_version' e content por blocos.
-    - Outros (Qwen/Llama…): OpenAI-like (messages).
+    - Anthropic: schema da Anthropic.
+    - Demais (ex.: Meta Llama): estilo 'messages' com blocos.
     """
     if BEDROCK_MODEL_ID.startswith("anthropic."):
         return {
@@ -259,17 +263,21 @@ def build_model_input_for_bedrock(prompt: str) -> Dict:
             "messages": [
                 {"role": "user", "content": [{"type": "text", "text": prompt}]}
             ],
-            "max_tokens": 1024,
             "temperature": 0.2,
             "top_p": 0.9
         }
     else:
         return {
             "messages": [
-                {"role": "system", "content": "Analista de perfis de BlueSky"},
-                {"role": "user", "content": prompt}
+                {
+                    "role": "system",
+                    "content": [{"type": "text", "text": "Analista de perfis de BlueSky"}]
+                },
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": prompt}]
+                }
             ],
-            "max_tokens": 1024,
             "temperature": 0.2,
             "top_p": 0.9
         }
