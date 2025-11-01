@@ -416,7 +416,7 @@ def processar_bsky_docs(max_docs: Optional[int] = None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Processa contas e gera relatórios via Amazon Bedrock Runtime (Claude 3 Haiku on-demand).")
+    parser = argparse.ArgumentParser(description="Processa contas e gera relatórios via Amazon Bedrock Runtime (Llama 3.2 90B on-demand).")
     parser.add_argument("-n", "--num", type=int, default=None,
                         help="Número MÁXIMO de contas a analisar (default: ilimitado)")
     parser.add_argument("--page-size", type=int, default=None,
@@ -432,7 +432,7 @@ def main():
         print("[INFO] Nada a fazer: --num <= 0")
         return
 
-    print(f"[INFO] Iniciando pipeline ON-DEMAND (Claude 3 Haiku). Limite de contas: {args.num if args.num is not None else 'ilimitado'}")
+    print(f"[INFO] Iniciando pipeline ON-DEMAND (Llama 3.2 90B). Limite de contas: {args.num if args.num is not None else 'ilimitado'}")
     processar_bsky_docs(max_docs=args.num)
 
 if __name__ == "__main__":
