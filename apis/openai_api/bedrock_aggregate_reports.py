@@ -5,7 +5,13 @@ from datetime import datetime
 from collections import defaultdict
 from typing import Any, Dict, Optional
 
-# --- Bedrock / AWS ---
+# --- HTTP / Bedrock fallback ---
+try:
+    import requests
+except Exception:
+    requests = None
+
+# --- AWS / boto3 ---
 try:
     import boto3
     from botocore.exceptions import ClientError
@@ -349,7 +355,7 @@ def process_reports_from_iterable(iter_reports):
                 monthly_by_age_and_gender_field_counts[month][age_label][gen_label][campo] += 1
                 # <<< FIM: NOVAS CONTAGENS ADICIONADAS >>>
 
-# (continuação / complemento do arquivo com Bedrock)
+    # --- Finalizar agregados e montar resultado ---
     by_age["Todos"] = overall
     agg_overall_final = finalize(overall)
 
@@ -371,7 +377,7 @@ def process_reports_from_iterable(iter_reports):
             month: {g: finalize(acc) for g, acc in gen_map.items()}
             for month, gen_map in monthly_by_gender.items()
         },
-        "monthly_by_age_and_gender": { # <<< ADICIONADO NA SUA SOLICITAÇÃO ANTERIOR
+        "monthly_by_age_and_gender": {
             month: {
                 age: {g: finalize(acc) for g, acc in gen_map.items()}
                 for age, gen_map in age_map.items()
@@ -385,35 +391,68 @@ def process_reports_from_iterable(iter_reports):
         "by_age_field_counts": {age: v for age, v in by_age_field_counts.items()},
         "by_gender_field_counts": {g: v for g, v in by_gender_field_counts.items()},
         
-        # <<< INÍCIO: NOVOS RESULTADOS DE FIELD COUNT ADICIONADOS >>>
         "monthly_by_age_field_counts": {m: v for m, v in monthly_by_age_field_counts.items()},
         "monthly_by_gender_field_counts": {m: v for m, v in monthly_by_gender_field_counts.items()},
         "by_age_and_gender_field_counts": {a: v for a, v in by_age_and_gender_field_counts.items()},
         "monthly_by_age_and_gender_field_counts": {m: v for m, v in monthly_by_age_and_gender_field_counts.items()},
-        # <<< FIM: NOVOS RESULTADOS DE FIELD COUNT ADICIONADOS >>>
     }
     return result
 
 # ------------------------------
 # Bedrock helper: invoke Qwen3 (Amazon Bedrock)
+# Supports both: AWS_BEARER_TOKEN_BEDROCK (requests) OR boto3 client (SigV4)
 # ------------------------------
 def invoke_bedrock_model(prompt: str, model_id: Optional[str] = None, max_tokens: int = 512, temperature: float = 0.0, region: Optional[str] = None):
     """
-    Invoke an Amazon Bedrock model (bedrock-runtime) using boto3.
-    - model_id: set by env var BEDROCK_MODEL_ID or pass here (e.g. "qwen3-32b" or the exact Bedrock modelId).
-    - Requires AWS credentials (IAM) or AWS_BEARER_TOKEN_BEDROCK (API-key style) depending on your setup.
+    Invoke an Amazon Bedrock model either via:
+      - Bearer token (env AWS_BEARER_TOKEN_BEDROCK) -> HTTP POST with requests
+      - boto3 bedrock-runtime client (uses AWS creds / roles)
+    - model_id: set by env var BEDROCK_MODEL_ID or pass here (e.g. "qwen3-32b" or exact Bedrock modelId).
     """
     model_id = model_id or os.getenv("BEDROCK_MODEL_ID")
     region = region or os.getenv("AWS_REGION", "us-east-1")
 
     if not model_id:
-        raise ValueError("BEDROCK_MODEL_ID not provided. Set env var BEDROCK_MODEL_ID to the modelId (e.g. 'qwen3-32b').")
+        raise ValueError("BEDROCK_MODEL_ID not provided. Set env var BEDROCK_MODEL_ID to the modelId (ex: 'qwen3-32b').")
+
+    # First preference: AWS_BEARER_TOKEN_BEDROCK -> requests
+    bearer = os.getenv("AWS_BEARER_TOKEN_BEDROCK")
+    if bearer:
+        if requests is None:
+            raise RuntimeError("requests não instalado. Instale com: pip install requests")
+        url = f"https://bedrock-runtime.{region}.amazonaws.com/models/{model_id}/invoke"
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Authorization": f"Bearer {bearer}"
+        }
+        payload = {
+            "input": prompt,
+            "max_tokens": max_tokens,
+            "temperature": temperature
+        }
+        try:
+            resp = requests.post(url, headers=headers, data=json.dumps(payload), timeout=60)
+            resp.raise_for_status()
+            text = resp.text
+            try:
+                data = resp.json()
+                # extrair campos mais comuns
+                for key in ("output", "generated_text", "text", "result", "choices"):
+                    if key in data:
+                        return data[key]
+                return data
+            except Exception:
+                return text
+        except Exception as e:
+            raise RuntimeError(f"Erro ao chamar Bedrock via Bearer token: {e}")
+
+    # If no bearer token, try boto3
     if boto3 is None:
-        raise RuntimeError("boto3 not installed. Install boto3 to call Bedrock: pip install boto3")
+        raise RuntimeError("boto3 não instalado e AWS_BEARER_TOKEN_BEDROCK não foi fornecido. Instale boto3 ou forneça um token Bearer.")
 
     client = boto3.client("bedrock-runtime", region_name=region)
 
-    # Generic JSON payload; some Bedrock models expect different shapes (prompt, input, messages).
     payload = {
         "input": prompt,
         "max_tokens": max_tokens,
@@ -433,21 +472,17 @@ def invoke_bedrock_model(prompt: str, model_id: Optional[str] = None, max_tokens
         else:
             text = str(body)
 
-        # Try parse JSON response if the model returned structured JSON
         try:
             data = json.loads(text)
-            # attempt to extract sensible fields commonly returned by models
             for key in ("output", "generated_text", "text", "result", "choices"):
                 if key in data:
                     return data[key]
             return data
         except Exception:
-            # not JSON — return raw text
             return text
 
     except ClientError as e:
         raise RuntimeError(f"Bedrock invoke_model error: {e}")
-
 
 def summarize_aggregation_with_qwen(agg: Dict[str, Any]):
     """
@@ -468,7 +503,6 @@ def summarize_aggregation_with_qwen(agg: Dict[str, Any]):
         print(result)
         # Optional: try to extract JSON from the model output
         if isinstance(result, str):
-            # find first '{' and try json.loads
             start = result.find("{")
             if start != -1:
                 try:
@@ -484,8 +518,7 @@ def summarize_aggregation_with_qwen(agg: Dict[str, Any]):
 # Main (sempre igual, com chamada opcional ao Bedrock)
 # ------------------------------
 def main():
-    # global script_to_run_final # Esta variável não está definida
-    script_to_run_final = None # <<< ADICIONADO para evitar NameError
+    script_to_run_final = None
 
     use_db = all([USER, PASS, HOST, PORT, AUTH_DB, DB_NAME]) and MongoClient is not None
     docs_iter = None
@@ -540,7 +573,7 @@ def main():
                     "report": {
                         "InformacoesIniciais": {
                             "NomeDeclaradoOuSugeridoPeloAutor": "VERDADEIRO",
-                            "MencaoDoAutorAPosseDeCPF": "VERDADEIRO" # <<< DADO ADICIONADO PARA TESTE
+                            "MencaoDoAutorAPosseDeCPF": "VERDADEIRO"
                         },
                         "InformacoesAdicionais": {
                             "Idade": 35,
@@ -563,14 +596,14 @@ def main():
                     }
                 },
                 {
-                     "report": { # <<< DADO ADICIONADO PARA TESTE
+                     "report": {
                         "InformacoesIniciais": {
                             "MencaoDoAutorAPosseDeCPF": "VERDADEIRO"
                         },
                         "InformacoesAdicionais": {
-                            "Idade": 22, # Mesma idade do primeiro
-                            "Genero": "Masculino", # Mesmo genero do primeiro
-                            "DataUltimoTweet": "2023-02-10T12:00:00Z" # Mes diferente
+                            "Idade": 22,
+                            "Genero": "Masculino",
+                            "DataUltimoTweet": "2023-02-10T12:00:00Z"
                         }
                     }
                 },
@@ -610,7 +643,7 @@ def main():
     print("[INFO] Resultados da Agregação:")
     print(json.dumps(agg, ensure_ascii=False, indent=2))
     
-    if script_to_run_final: # <<< MODIFICADO para checar se a variável não é None
+    if script_to_run_final:
         try:
             with open("aggregate_reports_final.py", "w", encoding="utf-8") as f:
                 f.write(script_to_run_final)
@@ -618,7 +651,7 @@ def main():
         except Exception as e_save_script:
             print(f"[WARN] Falha ao salvar script modificado: {e_save_script}")
     else:
-        print("[INFO] 'script_to_run_final' não definido, pulando salvamento do script.") # <<< MODIFICADO
+        print("[INFO] 'script_to_run_final' não definido, pulando salvamento do script.")
         
     try:
         with open("aggregation_results_final.json", "w", encoding="utf-8") as f:
