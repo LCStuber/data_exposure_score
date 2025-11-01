@@ -31,7 +31,7 @@ COL_REPORT = os.getenv("MONGO_COLLECTION_REPORTS_BEDROCK")
 
 # --- AWS / Bedrock ---
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
-BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "qwen.qwen3-32b-v1:0")
+BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-3-haiku-20240307-v1:0")
 BEDROCK_S3_INPUT = os.getenv("BEDROCK_S3_INPUT")   # ex: s3://meu-bucket/bedrock/input/
 BEDROCK_S3_OUTPUT = os.getenv("BEDROCK_S3_OUTPUT") # ex: s3://meu-bucket/bedrock/output/
 BEDROCK_ROLE_ARN = os.getenv("BEDROCK_ROLE_ARN")   # IAM role para Batch
