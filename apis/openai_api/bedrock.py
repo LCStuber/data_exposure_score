@@ -266,6 +266,35 @@ def s3_iter_lines(bucket: str, key: str):
 
 # Batch line builder (Bedrock)
 
+def build_model_input_for_bedrock(prompt: str) -> Dict:
+    """
+    Monta o 'modelInput' no schema esperado pelo provider.
+    - Anthropic (profiles que começam com 'us.anthropic.' ou 'global.anthropic.'):
+      requer content como lista de blocos [{"type":"text","text": "..."}] e aceita 'system' top-level.
+    - Demais (Meta Llama, Qwen etc.): usa formato OpenAI-like que você já está usando.
+    """
+    if BEDROCK_MODEL_ID.startswith(("us.anthropic.", "global.anthropic.")):
+        return {
+            "system": "Analista de perfis de BlueSky",
+            "messages": [
+                {"role": "user", "content": [{"type": "text", "text": prompt}]}
+            ],
+            "max_tokens": 1024,
+            "temperature": 0.2,
+            "top_p": 0.9
+        }
+    else:
+        # OpenAI-like (Llama, Qwen…)
+        return {
+            "messages": [
+                {"role": "system", "content": "Analista de perfis de BlueSky"},
+                {"role": "user", "content": prompt}
+            ],
+            "max_tokens": 1024,
+            "temperature": 0.2,
+            "top_p": 0.9
+        }
+
 
 def qwen_model_input_from_doc(doc: Dict) -> Optional[Dict]:
     """
@@ -281,18 +310,7 @@ def qwen_model_input_from_doc(doc: Dict) -> Optional[Dict]:
     prompt = build_prompt(tweets_json)
 
     # messages: system + user
-    messages = [
-        {"role": "system", "content": "Analista de perfis de BlueSky"},
-        {"role": "user", "content": prompt}
-    ]
-
-    # Corpo aceito pelo InvokeModel para Qwen3 (OpenAI-like)
-    body = {
-        "messages": messages,
-        "max_tokens": 1024,
-        "temperature": 0.2,
-        "top_p": 0.9
-    }
+    body = build_model_input_for_bedrock(prompt)
     return {"recordId": source_id, "modelInput": body}
 
 def write_jsonl_records(records: List[Dict]) -> str:
