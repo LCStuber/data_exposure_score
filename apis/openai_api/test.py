@@ -2,7 +2,7 @@
 import os
 import json
 from datetime import datetime, timedelta
-from aggregate_reports import process_reports_from_iterable, summarize_aggregation_with_qwen
+from bedrock_aggregate_reports import process_reports_from_iterable, summarize_aggregation_with_qwen
 
 # Opcional: defina essas vars no seu terminal antes de rodar (exemplo):
 # export BEDROCK_MODEL_ID="qwen3-32b"
