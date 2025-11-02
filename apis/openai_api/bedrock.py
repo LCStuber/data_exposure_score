@@ -286,6 +286,7 @@ def build_model_input_for_bedrock(prompt: str) -> Dict:
         "prompt": llama_prompt,
         "temperature": 0.2,
         "top_p": 0.9,
+        "max_gen_len": 4096,
     }
 
 def model_input_from_doc(doc: Dict) -> Optional[Dict]:
