@@ -190,13 +190,13 @@ def extract_text_from_response(resposta_body):
             return body
 
         if isinstance(body, dict):
-            # Llama 3.x/3.2 (Bedrock text-gen)
+            # Llama 3.x/3.2
             if "generation" in body and isinstance(body["generation"], str):
-                return body["generation"].strip()
+                return body["generation"].replace("<|eot_id|>", "").strip()
             if "generations" in body and isinstance(body["generations"], list) and body["generations"]:
                 g = body["generations"][0]
                 if isinstance(g, dict) and "text" in g:
-                    return str(g["text"]).strip()
+                    return str(g["text"]).replace("<|eot_id|>", "").strip()
 
             # Anthropic (messages)
             if "content" in body and isinstance(body["content"], list):
