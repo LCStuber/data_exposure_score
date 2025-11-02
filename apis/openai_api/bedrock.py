@@ -286,7 +286,6 @@ def build_model_input_for_bedrock(prompt: str) -> Dict:
         "prompt": llama_prompt,
         "temperature": 0.2,
         "top_p": 0.9,
-        "stop_sequences": ["<|eot_id|>"],  # evita ‘vazar’ além da resposta
     }
 
 def model_input_from_doc(doc: Dict) -> Optional[Dict]:
