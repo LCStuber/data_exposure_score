@@ -713,13 +713,13 @@ def main():
 
     if connected_to_db and client is not None:
         try:
-            summary_coll = db.get_collection("aggregates")
+            summary_coll = db.get_collection("aggregates_openai")
             doc = {
                 "generated_at": datetime.utcnow().isoformat() + "Z",
                 "aggregates": agg
             }
             summary_coll.insert_one(doc)
-            print("[INFO] Agregados gravados em 'aggregates'.")
+            print("[INFO] Agregados gravados em 'aggregates_openai'.")
         except Exception as e:
             print(f"[WARN] Não foi possível gravar agregados: {e}")
 
