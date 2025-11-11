@@ -181,6 +181,14 @@ const defaultKpiData = {
   des_range_counts: {},
 };
 
+// NOVO: Define os endpoints e o tipo da fonte de dados
+const endpoints = {
+  openai: 'https://api.des.lcstuber.net/aggregates_openai',
+  bedrock: 'https://api.des.lcstuber.net/aggregates_bedrock',
+};
+type DataSource = 'openai' | 'bedrock';
+
+
 export default function Page() {
   const [aggregates, setAggregates] = useState<any | null>(null)
   const [isZoomed, setIsZoomed] = useState(false)
@@ -188,6 +196,9 @@ export default function Page() {
 
   const [selectedAgeRange, setSelectedAgeRange] = useState(ageLabels[0]);
   const [selectedGender, setSelectedGender] = useState(genderLabels[0]);
+  
+  // NOVO: Estado para controlar a fonte de dados. 'openai' é o padrão.
+  const [dataSource, setDataSource] = useState<DataSource>('openai');
 
   const [isDark, setIsDark] = useState(false)
 
@@ -199,18 +210,23 @@ export default function Page() {
     return () => observer.disconnect()
   }, [])
 
+  // NOVO: O useEffect agora depende do `dataSource`
   useEffect(() => {
+      // Define como nulo para mostrar o loading
+      setAggregates(null); 
+      
+      const currentEndpoint = endpoints[dataSource];
 
-      fetch('https://api.des.lcstuber.net/aggregates')
+      fetch(currentEndpoint)
         .then((r) => r.json())
         .then((data) => {
           const item = Array.isArray(data) ? data[0] : data
           setAggregates(item.aggregates ?? item)
         })
         .catch((err) => {
-          console.error('Failed to load aggregates:', err)
+          console.error(`Failed to load aggregates from ${currentEndpoint}:`, err)
         })
-    }, [])
+    }, [dataSource]) // NOVO: Adiciona dataSource como dependência
     // Use the local file path for testing if needed, otherwise use the API endpoint
     // fetch('/aggregates.json') // For local testing
     
@@ -514,7 +530,10 @@ export default function Page() {
         <main className="max-w-7xl mx-auto p-6">
           <div className="rounded-2xl p-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
             <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Carregando dados…</h2>
-            <p className="text-sm mt-2 text-slate-600 dark:text-slate-400">Buscando agregados do endpoint de produção.</p>
+            {/* NOVO: Mensagem de loading dinâmica */}
+            <p className="text-sm mt-2 text-slate-600 dark:text-slate-400">
+              Buscando agregados da fonte: {dataSource === 'openai' ? 'OpenAI' : 'Bedrock'}.
+            </p>
           </div>
         </main>
       </div>
@@ -536,6 +555,36 @@ export default function Page() {
 
       <main className="max-w-7xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-4 gap-6" id="charts">
         <aside className="lg:col-span-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm sticky top-24 h-fit">
+          
+          {/* NOVO: Seção de botões para Fonte de Dados */}
+          <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-300 mb-4">Fonte de Dados</h3>
+          <div className="flex gap-2 flex-wrap mb-6">
+            <button
+              onClick={() => setDataSource('openai')}
+              type="button"
+              className={`w-full px-3 py-1.5 rounded-full text-sm border transition ${
+                dataSource === 'openai'
+                  ? 'bg-sky-600 text-white border-sky-600 shadow-sm'
+                  : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+              }`}
+            >
+              OpenAI
+            </button>
+            <button
+              onClick={() => setDataSource('bedrock')}
+              type="button"
+              className={`w-full px-3 py-1.5 rounded-full text-sm border transition ${
+                dataSource === 'bedrock'
+                  ? 'bg-sky-600 text-white border-sky-600 shadow-sm'
+                  : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+              }`}
+            >
+              Amazon Bedrock
+            </button>
+          </div>
+          {/* FIM DA NOVA SEÇÃO */}
+
+
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-300">Filtros</h3>
             {(isAgeFiltered || isGenderFiltered) && (
