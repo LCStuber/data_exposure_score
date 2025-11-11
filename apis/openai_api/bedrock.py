@@ -32,7 +32,7 @@ AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 
 # Use o FOUNDATION MODEL (sem 'us.'/'global.')
 # Haiku 3:
-BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "anthropic.claude-3-haiku-20240307-v1:0")
+BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "us.meta.llama3-2-90b-instruct-v1:0")
 
 TLS_CA_FILE = os.getenv("MONGO_TLS_CA_FILE", "rds-combined-ca-bundle.pem")
 
@@ -184,20 +184,21 @@ def _normalize_response_body(raw):
     return raw
 
 def extract_text_from_response(resposta_body):
-    """
-    Suporta formatos:
-      - Anthropic (messages API via Bedrock): {"content":[{"type":"text","text":"..."}], ...}
-      - OpenAI-like: {"choices":[{"message":{"content":"..."}}]}
-      - Titan-like: {"results":[{"outputText":"..."}]}
-    Fallback: serializa o corpo.
-    """
     try:
         body = _normalize_response_body(resposta_body)
         if isinstance(body, str):
             return body
 
         if isinstance(body, dict):
-            # Anthropic messages
+            # Llama 3.x/3.2
+            if "generation" in body and isinstance(body["generation"], str):
+                return body["generation"].replace("<|eot_id|>", "").strip()
+            if "generations" in body and isinstance(body["generations"], list) and body["generations"]:
+                g = body["generations"][0]
+                if isinstance(g, dict) and "text" in g:
+                    return str(g["text"]).replace("<|eot_id|>", "").strip()
+
+            # Anthropic (messages)
             if "content" in body and isinstance(body["content"], list):
                 texts = []
                 for item in body["content"]:
@@ -209,13 +210,22 @@ def extract_text_from_response(resposta_body):
             # OpenAI-like
             if "choices" in body and isinstance(body["choices"], list) and body["choices"]:
                 choice = body["choices"][0]
-                if isinstance(choice, dict):
-                    if "message" in choice and isinstance(choice["message"], dict) and "content" in choice["message"]:
-                        return str(choice["message"]["content"]).strip()
-                    if "text" in choice:
-                        return str(choice["text"]).strip()
-                    if "delta" in choice:
-                        return json.dumps(choice["delta"], ensure_ascii=False)
+                if isinstance(choice, dict) and "message" in choice and isinstance(choice["message"], dict):
+                    msg = choice["message"]
+                    if "content" in msg:
+                        content = msg["content"]
+                        if isinstance(content, list):
+                            texts = [c["text"] for c in content if isinstance(c, dict) and c.get("type") == "text" and "text" in c]
+                            if texts:
+                                return "\n".join(texts).strip()
+                        if isinstance(content, str):
+                            return content.strip()
+                    if "text" in msg and isinstance(msg["text"], str):
+                        return msg["text"].strip()
+                if "text" in choice:
+                    return str(choice["text"]).strip()
+                if "delta" in choice:
+                    return json.dumps(choice["delta"], ensure_ascii=False)
 
             # Titan-like
             if "results" in body and isinstance(body["results"], list) and body["results"]:
@@ -223,17 +233,17 @@ def extract_text_from_response(resposta_body):
                 if isinstance(first, dict) and "outputText" in first:
                     return str(first["outputText"]).strip()
 
-            # Erro padronizado?
             if "error" in body:
                 try:
                     return "__API_ERROR__ " + json.dumps(body["error"], ensure_ascii=False)
                 except Exception:
                     return "__API_ERROR__ " + str(body["error"])
 
-            # Outros campos comuns
-            for possible in ("output", "data", "result"):
+            # Fallbacks genéricos
+            for possible in ("output", "data", "result", "output_text"):
                 if possible in body:
-                    return json.dumps(body[possible], ensure_ascii=False)
+                    val = body[possible]
+                    return val if isinstance(val, str) else json.dumps(val, ensure_ascii=False)
 
             return json.dumps(body, ensure_ascii=False)
 
@@ -243,36 +253,41 @@ def extract_text_from_response(resposta_body):
         return f"__PARSE_EXCEPTION__ {e} | raw={repr(resposta_body)}"
 
 
+
+def _format_llama_prompt(system_txt: str, user_txt: str) -> str:
+    # Template oficial do Llama 3.x/3.2 (chat)
+    return (
+        "<|begin_of_text|>"
+        "<|start_header_id|>system<|end_header_id|>\n"
+        f"{system_txt}<|eot_id|>"
+        "<|start_header_id|>user<|end_header_id|>\n"
+        f"{user_txt}<|eot_id|>"
+        "<|start_header_id|>assistant<|end_header_id|>\n"
+    )
+
 # Model input builders
 
-
 def build_model_input_for_bedrock(prompt: str) -> Dict:
-    """
-    Monta o 'modelInput' conforme o provedor.
-    - Anthropic (IDs que começam com 'anthropic.'): exige 'anthropic_version' e content por blocos.
-    - Outros (Qwen/Llama…): OpenAI-like (messages).
-    """
-    if BEDROCK_MODEL_ID.startswith("anthropic."):
+    model_id = BEDROCK_MODEL_ID or ""
+    # Anthropic continua com messages
+    if model_id.startswith(("anthropic.", "us.anthropic.", "global.anthropic.")):
         return {
             "anthropic_version": "bedrock-2023-05-31",
             "system": "Analista de perfis de BlueSky",
-            "messages": [
-                {"role": "user", "content": [{"type": "text", "text": prompt}]}
-            ],
-            "max_tokens": 1024,
+            "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}]}],
             "temperature": 0.2,
-            "top_p": 0.9
+            "top_p": 0.9,
         }
-    else:
-        return {
-            "messages": [
-                {"role": "system", "content": "Analista de perfis de BlueSky"},
-                {"role": "user", "content": prompt}
-            ],
-            "max_tokens": 1024,
-            "temperature": 0.2,
-            "top_p": 0.9
-        }
+
+    # Meta Llama 3.x/3.2 → usa 'prompt' + 'max_gen_len'
+    sys_msg = "Analista de perfis de BlueSky"
+    llama_prompt = _format_llama_prompt(sys_msg, prompt)
+    return {
+        "prompt": llama_prompt,
+        "temperature": 0.2,
+        "top_p": 0.9,
+        "max_gen_len": 4096,
+    }
 
 def model_input_from_doc(doc: Dict) -> Optional[Dict]:
     """
@@ -408,7 +423,7 @@ def processar_bsky_docs(max_docs: Optional[int] = None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Processa contas e gera relatórios via Amazon Bedrock Runtime (Claude 3 Haiku on-demand).")
+    parser = argparse.ArgumentParser(description="Processa contas e gera relatórios via Amazon Bedrock Runtime (Llama 3.2 90B on-demand).")
     parser.add_argument("-n", "--num", type=int, default=None,
                         help="Número MÁXIMO de contas a analisar (default: ilimitado)")
     parser.add_argument("--page-size", type=int, default=None,
@@ -424,7 +439,7 @@ def main():
         print("[INFO] Nada a fazer: --num <= 0")
         return
 
-    print(f"[INFO] Iniciando pipeline ON-DEMAND (Claude 3 Haiku). Limite de contas: {args.num if args.num is not None else 'ilimitado'}")
+    print(f"[INFO] Iniciando pipeline ON-DEMAND (Llama 3.2 90B). Limite de contas: {args.num if args.num is not None else 'ilimitado'}")
     processar_bsky_docs(max_docs=args.num)
 
 if __name__ == "__main__":
