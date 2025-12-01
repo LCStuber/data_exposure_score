@@ -131,7 +131,7 @@ data_exposure_score/
 ├── front-end/             # Dashboard e páginas de documentação (Next.js / TypeScript)
 ├── requirements.txt       # Dependências Python
 ├── LICENSE
-├── .README
+├── README.md
 └── .gitignore
 ```
 
