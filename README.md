@@ -328,38 +328,6 @@ Para tentar reproduzir (ou adaptar) os resultados do artigo:
 
 ---
 
-## Contribuindo
-
-Contribuições são bem-vindas! Alguns caminhos possíveis:
-
-* **Pesquisa**: testar novas categorias de exposição, métricas ou variações da metodologia AHP.
-* **Engenharia**: otimizar pipelines, adicionar novos provedores de LLM, implementar cache, etc.
-* **Front-end**: melhorar visualizações, filtros, textos de conscientização e acessibilidade.
-* **Privacidade & ética**: sugerir melhorias na forma de comunicação, escopo de dados e aderência a legislações.
-
-Passos sugeridos:
-
-1. Faça um *fork* do repositório.
-
-2. Crie uma *branch* descritiva:
-
-   ```bash
-   git checkout -b feature/minha-melhoria
-   ```
-
-3. Implemente suas alterações e escreva *commits* claros.
-
-4. Abra um Pull Request explicando:
-
-   * O problema que você resolveu.
-   * Como testar.
-   * Se alterou dependências, variáveis de ambiente ou contratos de dados.
-
-Autores principais do artigo/projeto:
-**Carlos Henrique Lucena Barros, Débora Witkowski, Leonardo Cazotto Stuber, Mateus Capaldo Martins.** 
-
----
-
 ## Licença
 
 Este projeto é licenciado sob os termos da
