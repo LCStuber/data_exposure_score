@@ -1,336 +1,242 @@
 # Data Exposure Score (DES)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18293679.svg)](https://doi.org/10.5281/zenodo.18293679)
 
-O **Data Exposure Score (DES)** é um sistema que mede o nível de **exposição digital** de usuários a partir de dados **manifestamente públicos** em redes sociais.  
-Ele combina coleta massiva de postagens, análise com modelos de linguagem (LLMs) e um cálculo de escore inspirado em AHP para transformar exposição de dados em um número de **0 a 1000**, onde:
+**DOI (Zenodo):** 10.5281/zenodo.18293679  
+**Release (TCC):** `1.0.0-tcc`
+
+O **Data Exposure Score (DES)** é um sistema que **mensura a exposição digital** de indivíduos a partir de dados **manifestamente públicos** compartilhados em redes sociais. Ele combina **coleta em larga escala**, **análise com modelos de linguagem (LLMs)** e um **cálculo ponderado inspirado em AHP** para gerar um escore de **0 a 1000**, onde:
 
 - `DES = 1000` → nenhuma exposição sensível detectada  
-- `DES = 0` → exposição máxima segundo os critérios definidos  
+- `DES = 0` → exposição máxima (segundo os critérios/pesos adotados)
 
-Este repositório contém o código usado no artigo científico **“Data Exposure Score (DES) – Quantificando sua segurança”**, desenvolvido no curso de Ciência da Computação do Instituto Mauá de Tecnologia.
+Este repositório contém os artefatos do trabalho **“Data Exposure Score (DES) – Quantificando sua segurança”** (TCC / artigo científico – Instituto Mauá de Tecnologia).
+
+## Links rápidos
+- 📄 Paper (PDF): `paper/DES-Artigo.pdf`
+- 📚 Documentação: `docs/index.md`
+- 🧾 Citação: `CITATION.cff`
+- 🖥️ Dashboard (Next.js): `front-end/`
+- 📦 Código do pipeline: `apis/`
+- 🧪 Notebooks / análises: `exploratory_analysis/`
 
 ---
 
 ## Sumário
-
 - [Visão geral](#visão-geral)
-- [Arquitetura em alto nível](#arquitetura-em-alto-nível)
-- [Metodologia do escore DES](#metodologia-do-escore-des)
+- [Como o DES funciona](#como-o-des-funciona)
+  - [1) Coleta](#1-coleta)
+  - [2) Amostragem estatística](#2-amostragem-estatística)
+  - [3) Inferência com LLM + JSON padronizado](#3-inferência-com-llm--json-padronizado)
+  - [4) Cálculo do escore (AHP)](#4-cálculo-do-escore-ahp)
+- [Resultados reportados no paper](#resultados-reportados-no-paper)
 - [Estrutura do repositório](#estrutura-do-repositório)
-- [Tecnologias utilizadas](#tecnologias-utilizadas)
-- [Como começar](#como-começar)
-  - [Ambiente Python](#ambiente-python)
-  - [Variáveis de ambiente](#variáveis-de-ambiente)
-- [Pipelines de back-end](#pipelines-de-back-end)
-- [Dashboard e front-end](#dashboard-e-front-end)
-- [Reprodução dos resultados do artigo](#reprodução-dos-resultados-do-artigo)
-- [Contribuindo](#contribuindo)
+- [Instalação e execução](#instalação-e-execução)
+  - [Back-end (Python)](#back-end-python)
+  - [Front-end (Next.js)](#front-end-nextjs)
+- [Reprodutibilidade](#reprodutibilidade)
+- [Ética, privacidade e LGPD](#ética-privacidade-e-lgpd)
+- [Como citar](#como-citar)
 - [Licença](#licença)
+- [Créditos](#créditos)
 
 ---
 
 ## Visão geral
+A exposição digital frequentemente acontece de forma **inconsciente**: menções a rotina, localização, contatos, documentos e informações financeiras podem ampliar a superfície de ataque para **engenharia social**, **phishing** e outras ameaças.
 
-O DES foi criado com dois objetivos principais:
-
-1. **Mensurar** o grau de exposição digital de indivíduos com base em suas próprias publicações em redes sociais.
-2. **Conscientizar** sobre riscos de autoexposição e incentivar práticas mais seguras de uso das mídias digitais.
-
-No estudo original, utilizamos a rede social **Bluesky** como caso de uso:
-
-- Coleta de ~**92 milhões de postagens** de mais de **500 mil usuários** (≈ 8,19 GB).
-- Amostra estatística de **10.000 usuários**, com 95% de confiança e erro máximo de 1% na proporção.
-
-As postagens são analisadas por modelos LLM (como **Llama 3.2 90B Instruct** via Amazon Bedrock e **GPT-4o** via OpenAI), que retornam um **JSON padronizado** com flags booleanas indicando a presença de diferentes tipos de informação sensível. O DES então converte essas flags em um escore numérico de exposição.
+O DES foi desenvolvido para:
+- **Quantificar** a exposição individual em um valor numérico interpretável (similar a um “score”).
+- **Identificar** categorias de exposição a partir de texto (postagens).
+- **Conscientizar** e apoiar educação digital e segurança da informação.
+- Ser **replicável**: a metodologia pode ser adaptada para outras plataformas desde que os dados textuais possam ser coletados e analisados por LLM.
 
 ---
 
-## Arquitetura em alto nível
+## Como o DES funciona
+O DES é um pipeline modular com quatro etapas principais.
 
-A arquitetura do projeto pode ser resumida em quatro etapas principais (pipeline modular):
+### 1) Coleta
+- Fonte do estudo: **Bluesky**, escolhida por oferecer **API aberta (AtProto)** e viabilizar coleta ética de conteúdos públicos.
+- Execução distribuída com múltiplas instâncias e controle de concorrência (locks), deduplicação e “sharding”.
+- Armazenamento em banco orientado a documentos (**Amazon DocumentDB / MongoDB compatível**).
 
-1. **Coleta de dados**
-   - Coleta automatizada de postagens públicas na Bluesky via API aberta **AtProto**.
-   - Armazenamento em **Amazon DocumentDB** (compatível com MongoDB), em modo serverless.
+### 2) Amostragem estatística
+Como a base coletada é muito grande, o estudo define uma amostra representativa para análise estatística.
+- Confiança: **95%**
+- Margem de erro: **1% na proporção**
+- Resultado arredondado para **10.000 usuários**.
 
-2. **Amostragem estatística**
-   - Seleção de uma amostra representativa de usuários para análise (10.000 perfis) com base em critérios estatísticos.
+### 3) Inferência com LLM + JSON padronizado
+Cada usuário é analisado a partir de suas postagens públicas:
+1. As postagens são agrupadas em **batches**.
+2. Um **prompt estruturado** instrui o modelo a retornar um **JSON padronizado**.
+3. O JSON contém **valores booleanos** indicando presença/ausência de categorias de exposição (ex.: contato, finanças, documentos, localização, rotina, afiliações, hobbies etc.).
+4. Os resultados são persistidos no banco, vinculados ao identificador do usuário.
 
-3. **Inferência com LLM**
-   - Geração de prompts estruturados (com as postagens do usuário).
-   - Envio em *batches* para modelos via Amazon Bedrock (Llama 3.2 90B) e API OpenAI (GPT-4o).
-   - Recebimento de um JSON padronizado com campos booleanos indicando categorias de exposição (dados de contato, localização, rotina, etc.).
+O pipeline foi implementado para integrar **múltiplos provedores**:
+- **Amazon Bedrock** (ex.: Llama 3.2 90B Instruct)
+- **OpenAI API** (ex.: GPT-4o)
 
-4. **Cálculo do escore DES + visualização**
-   - Cálculo do escore ponderado via metodologia AHP em dois níveis.
-   - Geração de *dashboards* em **Next.js** com gráficos e recomendações de segurança digital.
+### 4) Cálculo do escore (AHP)
+O DES usa uma estrutura inspirada no **AHP (Analytic Hierarchy Process)** para atribuir pesos e transformar exposição em escore.
 
-Cada etapa é desacoplada: é possível trocar a fonte de dados, o modelo LLM ou o banco sem quebrar o restante do pipeline.
+- Critérios globais (nível 1): exemplo — **Impacto**, **Explorabilidade**, **Existência**
+- Categorias (nível 2): ex.: informação financeira, documentos pessoais, localização, contato, rotina/hábitos, afiliações, hobbies.
+
+**Variáveis**
+- `Vj` = variável de exposição da categoria `j` (binária: 0/1, a partir do JSON do LLM)
+- `Wj` = peso global da categoria `j` (derivado do AHP)
+
+**Fórmula**
+- Escore intermediário: `S = Σ (Wj · Vj)` com `S ∈ [0,1]`
+- Escala final invertida: `DES = 1000 · (1 - S)`
 
 ---
 
-## Metodologia do escore DES
+## Resultados reportados no paper
+Resumo do que foi observado no estudo (detalhes no PDF em `paper/`):
 
-O **Data Exposure Score** é calculado em cima de duas ideias:
-
-1. **Quais tipos de dado aparecem** (por exemplo, informação financeira, documentos pessoais, contato, localização, rotina, afiliações, hobbies).
-2. **Quão graves e exploráveis** esses dados são em um contexto de segurança da informação.
-
-### Estrutura de ponderação
-
-O DES usa uma estrutura inspirada no **AHP (Analytic Hierarchy Process)** em dois níveis:
-
-- **Nível 1 – Critérios globais**
-  - Ex.: **Impacto**, **Explorabilidade**, **Existência**.
-- **Nível 2 – Categorias de dados**
-  - Ex.: Informação financeira, documentos pessoais, localização em tempo real, contato pessoal, rotina/hábitos, afiliação política/religiosa, hobbies/interesses.
-
-Para cada critério e categoria são atribuídos pesos (ex.: impacto da informação financeira > hobbies). Esses pesos são normalizados para compor um vetor de pesos globais `Wj` por categoria.
-
-### Variáveis e fórmula
-
-Para cada usuário, temos:
-
-- `Vj` = variável de exposição da categoria `j` (neste estudo, **binária**: `1` se o LLM detectou exposição; `0` caso contrário).
-- `Wj` = peso global da categoria `j` (resultante do AHP).
-
-1. Primeiro, calculamos um escore intermediário `S` em `[0,1]`:
-
-$$
-S = \sum_{j=1}^{n} W_j \cdot V_j
-$$
-
-2. Depois, aplicamos a escala **invertida** para o DES:
-
-$$
-DES = 1000 \times (1 - S)
-$$
-
-- `DES = 1000` → nenhuma exposição detectada.
-- `DES = 0` → todas as categorias mais críticas aparecem simultaneamente. 
-
-### Exemplos de ponderação (resumido)
-
-- **Informação financeira**  
-  - Impacto: 10 | Explorabilidade: 8  
-  - Risco direto de fraude, roubo de identidade, engenharia social direcionada.
-
-- **Hobbies e interesses**  
-  - Impacto: 2 | Explorabilidade: 4  
-  - Baixo risco isolado, mas útil para criar pretextos críveis em ataques de engenharia social.
-
-Isso garante que expor um salário ou documento pessoal pese muito mais no escore do que citar um hobby.
+- Coleta em larga escala na Bluesky (dezenas de milhões de postagens; centenas de milhares de usuários).
+- A amostra final do experimento: **10.000 usuários**.
+- O desempenho e o “rigor” do score variam conforme o modelo:
+  - Um modelo menos sensível pode gerar **falsos negativos** e aumentar artificialmente o DES (sensação falsa de segurança).
+  - Um modelo mais robusto tende a detectar mais exposições e produzir um score mais conservador.
 
 ---
 
 ## Estrutura do repositório
-
 ```text
 data_exposure_score/
-├── apis/                  # Scripts de back-end, clients de LLM, pipelines em batch, cálculo do DES
-├── exploratory_analysis/  # Notebooks Jupyter e experimentos usados no artigo
-├── front-end/             # Dashboard e páginas de documentação (Next.js / TypeScript)
+├── apis/                  # Pipeline: coleta, batches, inferência, cálculo e agregações
+├── exploratory_analysis/  # Notebooks/experimentos usados no estudo
+├── front-end/             # Dashboard em Next.js / TypeScript
+├── docs/                  # Documentação em Markdown (guia do projeto)
+├── paper/                 # Artigo científico (PDF/DOCX)
 ├── requirements.txt       # Dependências Python
+├── .env.example           # Exemplo de variáveis de ambiente
+├── CITATION.cff           # Metadados de citação (GitHub/Zenodo)
 ├── LICENSE
-├── README.md
-└── .gitignore
+└── README.md
 ```
 
-A maior parte do projeto está nos **notebooks** (exploration/validação) e scripts Python que compõem o pipeline de coleta, inferência e cálculo do escore.
-
 ---
 
-## Tecnologias utilizadas
+## Instalação e execução
 
-**Coleta e armazenamento**
+### Back-end (Python)
 
-* **Bluesky / AtProto** – API aberta para coleta de postagens públicas, respeitando LGPD (dados manifestamente públicos). 
-* **Python** – scripts de coleta com paralelismo, *locks* e verificação de duplicidade.
-* **Amazon DocumentDB** (compatível com MongoDB) – banco orientado a documentos, modo serverless, escalável. 
-
-**Modelos de linguagem (LLMs)**
-
-* **Llama 3.2 90B Instruct** via **Amazon Bedrock**.
-* **GPT-4o** via API **OpenAI**.
-* JSON padronizado com flags booleanas por categoria de exposição. 
-
-**Back-end / scripts**
-
-* Python (pipelines, geração de *batches*, chamadas a APIs, gravação em DocumentDB).
-* Integrações configuráveis por variáveis de ambiente.
-
-**Front-end**
-
-* **Next.js + TypeScript** – dashboard para visualização do DES e páginas de documentação/metodologia.
-* Gráficos para:
-
-  * Distribuição de DES.
-  * Comparação entre categorias.
-  * Segmentação por faixa etária, sexo etc. 
-
----
-
-## Como começar
-
-### Ambiente Python
-
-1. **Clonar o repositório**
+1. Clone:
 
 ```bash
 git clone https://github.com/LCStuber/data_exposure_score.git
 cd data_exposure_score
 ```
 
-2. **Criar e ativar um ambiente virtual (recomendado)**
+2. Ambiente virtual:
 
 ```bash
 python -m venv .venv
 
-# Linux / macOS
+# Linux/macOS
 source .venv/bin/activate
 
 # Windows (PowerShell)
 .venv\Scripts\Activate.ps1
 ```
 
-3. **Instalar dependências**
+3. Dependências:
 
 ```bash
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
----
+4. Variáveis de ambiente:
 
-### Variáveis de ambiente
-
-Alguns scripts de `apis/` dependem de credenciais e configurações externas. Os nomes exatos podem variar entre os arquivos, mas em geral você vai precisar de algo como:
-
-**Banco (DocumentDB / MongoDB)**
-
-* `MONGODB_URI`
-* `MONGODB_DB`
-* `MONGODB_COLLECTION_AGGREGATES` (por exemplo, para os agregados do DES)
-
-**OpenAI**
-
-* `OPENAI_API_KEY`
-
-**Gemini (se utilizado em alguma variante)**
-
-* `GEMINI_API_KEY`
-
-**AWS / Bedrock**
-
-* `AWS_ACCESS_KEY_ID`
-* `AWS_SECRET_ACCESS_KEY`
-* `AWS_REGION`
-* `BEDROCK_MODEL_ID` (ex.: modelo Llama 3.2 90B Instruct)
-
-Sugestão: crie um arquivo `.env` na raiz do projeto e use alguma biblioteca de *dotenv* ou mecanismo próprio para carregar essas variáveis antes de rodar os scripts.
-
----
-
-## Pipelines de back-end
-
-Os scripts em `apis/` implementam o pipeline descrito no artigo. Em linhas gerais:
-
-1. **Coleta e geração de dataset**
-
-   * Scripts para buscar postagens da Bluesky e armazenar no DocumentDB, com controle de concorrência e deduplicação. 
-
-2. **Geração de *batches* e prompts**
-
-   * Agrupamento de usuários e suas postagens em *batches*.
-   * Montagem de prompts estruturados com as postagens e instruções para o LLM retornar um JSON padronizado.
-
-3. **Inferência em lote (Bedrock / OpenAI)**
-
-   * Envio dos *batches* para:
-
-     * Bedrock (Llama 3.2 90B Instruct) **ou**
-     * OpenAI (GPT-4o).
-   * Recebimento, validação e gravação dos JSONs de resposta no DocumentDB. 
-
-4. **Cálculo e agregação do DES**
-
-   * Aplicação das ponderações AHP.
-   * Cálculo do `S` e do `DES` por usuário.
-   * Criação de coleções agregadas para alimentar dashboards (médias, distribuições, segmentos por faixa etária, sexo, etc.). 
-
-Cada script normalmente expõe um `--help`, por exemplo:
+* Crie o arquivo `.env` a partir do exemplo:
 
 ```bash
-python apis/<nome_do_script>.py --help
+cp .env.example .env
 ```
 
-Use isso para ver parâmetros de conexão, filtros e opções de limite.
+* Preencha com suas credenciais (Bluesky, Mongo/DocumentDB, OpenAI/AWS etc.).
 
----
+5. Execução dos scripts:
+   Como o pipeline é composto por múltiplos scripts, use:
 
-## Dashboard e front-end
+```bash
+python apis/<script>.py --help
+```
 
-O diretório `front-end/` contém o código de um dashboard em **Next.js** que:
+e execute por etapas (coleta → inferência → cálculo → agregações).
 
-* Exibe gráficos de distribuição do DES (por faixa, por grupo, por categoria).
-* Mostra os principais marcadores de exposição (financeira, documentos, contato, etc.).
-* Fornece um contexto educativo, com seções como:
+> Observação: a execução completa depende de credenciais e pode envolver custos de inferência.
 
-  * Introdução
-  * Metodologia (AHP, categorias, pesos)
-  * Objetivos e limitações
-  * Recomendações práticas de segurança digital 
-
-### Rodando o front-end localmente
-
-Na raiz do repositório:
+### Front-end (Next.js)
 
 ```bash
 cd front-end
-npm install        # ou pnpm / yarn, se preferir
+npm install
 npm run dev
 ```
 
-Depois, acesse o endereço informado no terminal (geralmente `http://localhost:3000`).
-
-> Para visualizar dados reais, configure o front-end para consumir a mesma base que os scripts de back-end populam (por exemplo via API interna ou conexão direta).
+Acesse a URL exibida no terminal (geralmente `http://localhost:3000`).
 
 ---
 
-## Reprodução dos resultados do artigo
+## Reprodutibilidade
 
-Para tentar reproduzir (ou adaptar) os resultados do artigo:
+* **Reprodução completa** do experimento do paper requer acesso a serviços externos (API Bluesky, banco, endpoints de inferência).
+* Para **reprodução parcial**, você pode:
 
-1. **Coleta de dados**
+  * executar trechos do pipeline com um conjunto reduzido de dados
+  * usar os notebooks de análise em `exploratory_analysis/`
+  * validar a metodologia (JSON → AHP → score) com amostras menores
 
-   * Caso você não tenha acesso à mesma base, pode adaptar os scripts para:
+---
 
-     * Coletar dados públicos de outra conta / subconjunto da Bluesky.
-     * Utilizar outro conjunto de postagens estruturadas.
+## Ética, privacidade e LGPD
 
-2. **Amostragem**
+* O projeto trabalha com dados **manifestamente públicos**.
+* O foco é **estatístico/educacional**: identificar padrões e quantificar exposição, não rastrear indivíduos.
+* A escolha do caso de estudo (Bluesky + API aberta) foi feita para manter **conformidade** e transparência.
 
-   * Ajuste o tamanho da amostra de acordo com seus recursos de computação.
-   * O artigo utiliza uma amostra de **10.000 usuários** com base em fórmula de tamanho de amostra para proporções (95% confiança, erro 1%). 
+---
 
-3. **Inferência com LLM**
+## Como citar
 
-   * Teste diferentes modelos (por exemplo, apenas OpenAI ou apenas Bedrock).
-   * No artigo, observou-se que:
+Use o DOI do Zenodo e/ou o arquivo `CITATION.cff`.
 
-     * Llama 3.2 90B Instruct → escore médio ≈ **893 (Alto)**.
-     * GPT-4o → escore médio ≈ **655 (Médio)**.
-       Isso indica que modelos mais robustos tendem a detectar mais exposições, reduzindo falsos negativos. 
+**BibTeX (exemplo)**
 
-4. **Cálculo do DES e dashboards**
-
-   * Execute os scripts de agregação.
-   * Utilize o front-end para visualizar as distribuições e comparações entre grupos.
+```bibtex
+@software{stuber_data_exposure_score_des,
+  title   = {Data Exposure Score (DES) - Quantificando sua seguranca},
+  author  = {Stuber, Leonardo Cazotto and Barros, Carlos Henrique Lucena and Martins, Mateus Capaldo and Witkowski, Debora and Serra, Ana Paula Goncalves and Alvarenga, Milkes Yone},
+  doi     = {10.5281/zenodo.18293679},
+  url     = {https://doi.org/10.5281/zenodo.18293679},
+  version = {1.0.0-tcc}
+}
+```
 
 ---
 
 ## Licença
 
-Este projeto é licenciado sob os termos da
-[GNU General Public License v3.0 (GPL-3.0)](https://www.gnu.org/licenses/gpl-3.0.html).
+Este projeto é licenciado sob **GNU GPL-3.0**. Veja `LICENSE`.
 
-Consulte o arquivo [`LICENSE`](LICENSE) para mais detalhes.
+---
+
+## Créditos
+
+Autores:
+
+* Leonardo Cazotto Stuber
+* Carlos Henrique Lucena Barros
+* Mateus Capaldo Martins
+* Débora Witkowski
+
+Orientadoras:
+
+* Profa. Dra. Ana Paula Gonçalves Serra
+* Profa. Dra. Milkes Yone Alvarenga

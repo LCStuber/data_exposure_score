@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+title: "Data Exposure Score (DES) - Quantificando sua segurança"
+message: "If you use this work, please cite it."
+authors:
+  - family-names: "Stuber"
+    given-names: "Leonardo Cazotto"
+  - family-names: "Barros"
+    given-names: "Carlos Henrique Lucena"
+  - family-names: "Martins"
+    given-names: "Mateus Capaldo"
+  - family-names: "Witkowski"
+    given-names: "Débora"
+  - family-names: "Serra"
+    given-names: "Ana Paula Gonçalves"
+  - family-names: "Alvarenga"
+    given-names: "Milkes Yone"
+doi: 10.5281/zenodo.18293679
+version: "1.0.0-tcc"
+date-released: "2026-01-18"
+url: "https://github.com/LCStuber/data_exposure_score"
+license: "GPL-3.0"
